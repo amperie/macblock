@@ -1,0 +1,19 @@
+[Unit]
+Description=MacBlock parent controls
+After=network.target
+[Service]
+User=macblock
+Group=macblock
+WorkingDirectory=/opt/macblock/server
+EnvironmentFile=/etc/macblock.env
+Environment=MACBLOCK_DB=/var/lib/macblock/state.sqlite3
+ExecStart=/usr/bin/python3 /opt/macblock/server/server.py
+Restart=on-failure
+StateDirectory=macblock
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+[Install]
+WantedBy=multi-user.target
