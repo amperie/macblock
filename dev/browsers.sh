@@ -14,7 +14,7 @@ src=pathlib.Path('browser/chrome')
 dst.mkdir(parents=True,exist_ok=True)
 manifest=json.loads((src/'manifest.json').read_text())
 manifest.pop('storage',None) # dev build has no enterprise managed storage
-manifest['name']='MacBlock Website Filter (local development)'
+manifest['name']='Orbit Website Filter (local development)'
 (dst/'manifest.json').write_text(json.dumps(manifest,indent=2))
 source=(src/'background.js').read_text()
 needle="  const managed = await api.storage.managed.get(['serverURL', 'browserToken']).catch(() => ({}));"
@@ -30,7 +30,7 @@ if command -v xcrun >/dev/null && xcrun --find safari-web-extension-converter >/
   echo 'Generating Safari project (Xcode and signing still required)...'
   mkdir -p "$work/safari"
   xcrun safari-web-extension-converter "$work/chrome-extension" \
-    --project-location "$work/safari" --app-name MacBlockSafariDev \
+    --project-location "$work/safari" --app-name OrbitSafariDev \
     --bundle-identifier com.macblock.safari.dev --no-open
   echo "Open the generated Safari Xcode project in $work/safari, choose your signing team,"
   echo 'run the containing app, and enable its extension in Safari Settings.'
