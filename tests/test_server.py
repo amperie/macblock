@@ -59,6 +59,20 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(s.policy()['revision'], 1)
 
 
+
+    def test_server_time_is_utc_and_independent_of_local_timezone(self):
+        before = datetime.datetime.now(datetime.timezone.utc)
+        code, response = self.call('/api/device/policy', s.DEVICE)
+        after = datetime.datetime.now(datetime.timezone.utc)
+        self.assertEqual(code, 200)
+        self.assertEqual(response['enforcementTimeZone'], 'America/Los_Angeles')
+        server_time = datetime.datetime.fromisoformat(response['serverTimeUTC'])
+        self.assertEqual(server_time.utcoffset(), datetime.timedelta(0))
+        self.assertLessEqual(before, server_time)
+        self.assertLessEqual(server_time, after)
+        self.assertNotIn('serverTimeUTC', s.policy())
+        self.assertNotIn('enforcementTimeZone', s.policy())
+
     def test_activity_auth_validation_and_deduplication(self):
         now = datetime.datetime.now(datetime.timezone.utc)
         start = (now - datetime.timedelta(minutes=5)).isoformat()
