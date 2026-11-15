@@ -168,7 +168,7 @@ func enforce() {
         let appScheduled: Bool
         if let rule = perAppSchedule, rule.enabled {
             appScheduled = (now != nil && zone != nil) ? rule.isBlocked(at: now!, zone: zone!) : true
-        } else { appScheduled = scheduleBlocked }
+        } else { appScheduled = perAppSchedule == nil ? scheduleBlocked : false }
         let appQuota = policy.appQuotaStates?[app.bundleId]
         let quotaSyncValid = lastQuotaSyncUptime.map { let age = ProcessInfo.processInfo.systemUptime - $0; return age >= 0 && age <= 180 } ?? false
         let localDay = (now != nil && zone != nil) ? {
