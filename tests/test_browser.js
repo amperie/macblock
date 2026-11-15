@@ -5,12 +5,13 @@ const src = fs.readFileSync('browser/chrome/background.js','utf8');
 const handlers = {};
 let rules = [];
 let savedRevision = 0;
+let clientId = null;
 let revision = 1;
 let config = {serverURL:'https://example.test',browserToken:'b'.repeat(40)};
 const api = {
   storage:{
     managed:{get:async()=>config},
-    local:{get:async()=>({lastRevision:savedRevision}),set:async v=>{savedRevision=v.lastRevision;}}
+    local:{get:async()=>({lastRevision:savedRevision,clientId}),set:async v=>{if ('lastRevision' in v) savedRevision=v.lastRevision; if ('clientId' in v) clientId=v.clientId;}}
   },
   idle:{queryState:async()=> 'active'},
   windows:{getLastFocused:async()=>({id:1,focused:true})},
@@ -25,11 +26,12 @@ const api = {
   alarms:{create:()=>{},onAlarm:{addListener:f=>handlers.alarm=f}}
 };
 let domains=['instagram.com','tiktok.com'];
-const context = {chrome:api,console,URL,Date,fetch:async(url,opts)=>{
+const context = {chrome:api,console,URL,Date,crypto:{randomUUID:()=> '11111111-1111-4111-8111-111111111111'},fetch:async(url,opts)=>{
   assert.equal(opts.headers.Authorization,'Bearer '+config.browserToken);
   if (url.href.endsWith('/api/browser/activity')) {
     assert.equal(opts.method,'POST');
     assert.equal(JSON.parse(opts.body).domain,'example.com');
+    assert.equal(JSON.parse(opts.body).clientId,'11111111-1111-4111-8111-111111111111');
     return {ok:true};
   }
   assert.equal(url.href,'https://example.test/api/browser/domains');
