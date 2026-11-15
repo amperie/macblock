@@ -73,6 +73,24 @@ class ControlTests(unittest.TestCase):
         self.assertNotIn('serverTimeUTC', s.policy())
         self.assertNotIn('enforcementTimeZone', s.policy())
 
+    def test_timezone_schedule_update_and_persistence(self):
+        _, policy = self.call('/api/device/policy', s.DEVICE)
+        policy['enforcementTimeZone'] = 'America/New_York'
+        policy['schedule'] = dict(enabled=True, start='21:00', end='07:00')
+        code, saved = self.call('/api/admin/policy', s.ADMIN, policy)
+        self.assertEqual(code, 200)
+        self.assertEqual(saved['enforcementTimeZone'], 'America/New_York')
+        self.assertTrue(saved['schedule']['enabled'])
+        self.assertEqual(self.call('/api/device/policy', s.DEVICE)[1]['enforcementTimeZone'], 'America/New_York')
+        s.init_db()
+        self.assertEqual(s.policy()['enforcementTimeZone'], 'America/New_York')
+        for zone in ['Invalid/Zone', '', None]:
+            invalid = dict(saved, enforcementTimeZone=zone)
+            self.assertEqual(self.call('/api/admin/policy', s.ADMIN, invalid)[0], 400)
+        invalid = dict(saved, schedule=dict(enabled=True, start='25:00', end='07:00'))
+        self.assertEqual(self.call('/api/admin/policy', s.ADMIN, invalid)[0], 400)
+        self.assertEqual(s.policy()['revision'], 2)
+
     def test_activity_auth_validation_and_deduplication(self):
         now = datetime.datetime.now(datetime.timezone.utc)
         start = (now - datetime.timedelta(minutes=5)).isoformat()
