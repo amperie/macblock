@@ -134,7 +134,7 @@ DispatchQueue.global(qos: .utility).async {
                    let old = trustedNow(), parsed >= old.addingTimeInterval(-2) {
                     trustedTime = (max(parsed, old), receivedUptime)
                 } else if roundTrip >= 0, roundTrip <= 25,
-                          trustedTime == nil,
+                          (trustedTime == nil || trustedNow() == nil),
                           let timestamp = next.serverTimeUTC,
                           next.enforcementTimeZone == "America/Los_Angeles",
                           let parsed = trustedFormatter.date(from: timestamp) {
