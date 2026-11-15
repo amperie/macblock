@@ -1,6 +1,6 @@
 # Orbit
 
-**Orbit** uses the reverse-DNS namespace `com.side-forge.orbit` (based on `side-forge.com`). The application, daemon, monitor, browser extension, development tools, and environment variables have been renamed. The GitHub repository is temporarily still `amperie/macblock` until its repository setting is renamed.
+**Orbit** uses the reverse-DNS namespace `com.side-forge.orbit` (based on `side-forge.com`). The application, daemon, monitor, browser extension, development tools, and environment variables have been renamed. The GitHub repository is `amperie/orbit`.
 
 Remote parental controls for macOS: a Python parent dashboard and a privileged Swift agent that terminates blocked signed applications. Foreground monitoring supports usage history, schedules, quotas and temporary allowances. Chrome and Safari WebExtension integration is **experimental**.
 
@@ -13,7 +13,7 @@ Prerequisites: macOS, Python 3.9+, Node.js, Xcode Command Line Tools, and `mkcer
 ```bash
 brew install mkcert
 mkcert -install
-git clone https://github.com/amperie/macblock.git
+git clone https://github.com/amperie/orbit.git
 cd orbit
 bash dev/start.sh
 ```
