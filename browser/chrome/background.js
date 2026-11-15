@@ -27,7 +27,11 @@ async function applyPolicy() {
   const response = await fetch(url, {headers:{Authorization:'Bearer ' + cfg.browserToken},redirect:'error',cache:'no-store'});
   if (!response.ok) throw Error('Policy fetch failed: ' + response.status);
   const policy = await response.json();
-  if (!Array.isArray(policy.blockedDomains)) throw Error('Invalid domain policy');
+  if (!Number.isSafeInteger(policy.revision) || policy.revision < 1 ||
+      !Array.isArray(policy.blockedDomains)) throw Error('Invalid domain policy');
+  const saved = await api.storage.local.get('lastRevision');
+  if (Number.isSafeInteger(saved.lastRevision) && policy.revision < saved.lastRevision)
+    throw Error('Rejected older browser policy');
   const domains = [...new Set(policy.blockedDomains.map(normalize).filter(Boolean))].slice(0, 500);
   if (domains.length !== policy.blockedDomains.length) throw Error('Invalid domain policy');
   const existing = await api.declarativeNetRequest.getDynamicRules();
