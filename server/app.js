@@ -160,3 +160,12 @@ $('blocked-domains').addEventListener('change', () => {
   state.policy.blockedDomains = [...new Set($('blocked-domains').value.split(/\r?\n/).map(s => s.trim().toLowerCase()).filter(Boolean))];
   dirty = true; $('message').textContent = 'Unsaved changes';
 });
+
+async function loadSecurityHealth() {
+  const result = await api('/api/admin/health');
+  $('security-health').textContent =
+    'Daemon: ' + (result.deviceConnected ? 'recently connected' : 'not recently connected') +
+    ' · Foreground monitor: ' + (result.monitorConnected ? 'recently connected' : 'not recently connected') +
+    ' · Browser filtering: ' + (result.browserProtectionVerified ? 'verified' : 'NOT VERIFIED');
+}
+$('security-refresh').onclick = action(loadSecurityHealth);
