@@ -18,13 +18,15 @@ final class ForegroundMonitor {
     private let session = URLSession(configuration: .ephemeral)
     private var pending: [FocusEvent] = []
     private var idle = false
-    private let formatter = ISO8601DateFormatter()
+    private var uploading = false
 
     init(settings: MonitorSettings, queueURL: URL) throws {
         self.settings = settings
         self.queueURL = queueURL
         if let data = try? Data(contentsOf: queueURL) {
-            pending = (try? JSONDecoder().decode([FocusEvent].self, from: data)) ?? []
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            pending = (try? decoder.decode([FocusEvent].self, from: data)) ?? []
         }
         guard let url = URL(string: settings.serverURL), url.scheme == "https",
               url.host != nil, url.user == nil, url.password == nil,
@@ -84,7 +86,9 @@ final class ForegroundMonitor {
     }
 
     private func persist() {
-        if let data = try? JSONEncoder().encode(pending) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(pending) {
             try? data.write(to: queueURL, options: .atomic)
         }
     }
@@ -96,8 +100,12 @@ final class ForegroundMonitor {
         persist()
         guard let url = URL(string: settings.serverURL + "/api/device/activity") else { return }
         let current = tracker.current.map { Current(bundleId: $0.bundleId, appName: $0.appName, since: $0.startedAt) }
+        guard !uploading else { return }
         let payload = Upload(events: Array(pending.prefix(100)), current: current)
-        guard let body = try? JSONEncoder().encode(payload) else { return }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let body = try? encoder.encode(payload) else { return }
+        uploading = true
         var request = URLRequest(url: url, timeoutInterval: 12)
         request.httpMethod = "POST"
         request.httpBody = body
@@ -105,9 +113,10 @@ final class ForegroundMonitor {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // A synchronous upload is avoided on the GUI run loop.
         session.dataTask(with: request) { [weak self] _, response, error in
-            guard error == nil, (response as? HTTPURLResponse)?.statusCode == 200 else { return }
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                self.uploading = false
+                guard error == nil, (response as? HTTPURLResponse)?.statusCode == 200 else { return }
                 let ids = Set(payload.events.map(\.eventId))
                 self.pending.removeAll { ids.contains($0.eventId) }
                 self.persist()
