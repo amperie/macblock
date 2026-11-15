@@ -55,6 +55,7 @@ struct Policy: Codable {
     let appSchedules: [String: Schedule]?
     let appQuotaStates: [String: QuotaState]?
     let overrides: [String: String]?
+    let blockedDomains: [String]?
     func validate() throws {
         guard schemaVersion == 1, revision > 0, apps.count <= 100 else { throw Failure.invalidPolicy }
         if let schedule = schedule { try schedule.validate() }
@@ -64,6 +65,17 @@ struct Policy: Codable {
                   apps.contains(where: { $0.bundleId == quota.bundleId }) else { throw Failure.invalidPolicy }
         }
         if let zone = enforcementTimeZone, TimeZone(identifier: zone) == nil { throw Failure.invalidPolicy }
+        if let domains = blockedDomains {
+            guard domains.count <= 100, Set(domains).count == domains.count,
+                  domains.allSatisfy({ $0.count <= 253 &&
+                      $0.range(of: "^[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$", options: .regularExpression) != nil })
+            else { throw Failure.invalidPolicy }
+        }
+        let appIDs = Set(apps.map(\.bundleId))
+        guard (appSchedules ?? [:]).keys.allSatisfy({ appIDs.contains($0) }),
+              (appQuotaStates ?? [:]).keys.allSatisfy({ appIDs.contains($0) }),
+              (overrides ?? [:]).keys.allSatisfy({ appIDs.contains($0) })
+        else { throw Failure.invalidPolicy }
         var seen = Set<String>()
         for app in apps {
             guard !app.name.isEmpty, app.name.count <= 80,
