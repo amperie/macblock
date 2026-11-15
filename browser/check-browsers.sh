@@ -18,7 +18,7 @@ echo '  Verify chrome://policy shows ExtensionSettings and chrome://extensions s
 echo '  Confirm blocked navigation manually; policy presence does not prove enforcement.'
 echo 'Safari:'
 if command -v pluginkit >/dev/null; then
-  pluginkit -m -A 2>/dev/null | grep -i 'macblock' || echo '  No MacBlock plugin registered.'
+  pluginkit -m -A 2>/dev/null | grep -i 'macblock' || echo '  No Orbit browser plugin registered (internal identifier may be macblock).'
 fi
 echo '  Check Safari Settings > Extensions and test blocked navigation manually.'
 echo '  Plugin registration does not prove Safari filtering is enabled.'
