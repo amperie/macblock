@@ -118,19 +118,28 @@ DispatchQueue.global(qos: .utility).async {
     while true {
         // Fetch separately; publish under the lock, keeping enforcement responsive.
         do {
+            let requestStartedUptime = ProcessInfo.processInfo.systemUptime
             let data = try request(settings, "/api/device/policy")
             let receivedUptime = ProcessInfo.processInfo.systemUptime
             let next = try decoder.decode(Policy.self, from: data); try next.validate()
             policyLock.lock()
             if next.revision >= (active?.revision ?? 0) {
-            // A cached policy must never be allowed to supply a trusted clock.
-            if let timestamp = next.serverTimeUTC,
-               next.enforcementTimeZone == "America/Los_Angeles",
-               let parsed = trustedFormatter.date(from: timestamp) {
-                trustedTime = (parsed, receivedUptime)
-            } else {
-                trustedTime = nil
-            }
+                // Reject malformed or stale time samples. Use a conservative
+                // anchor at receipt, never an earlier time than a previous anchor.
+                let roundTrip = receivedUptime - requestStartedUptime
+                if roundTrip >= 0, roundTrip <= 25,
+                   let timestamp = next.serverTimeUTC,
+                   next.enforcementTimeZone == "America/Los_Angeles",
+                   let parsed = trustedFormatter.date(from: timestamp),
+                   let old = trustedNow(), parsed >= old.addingTimeInterval(-2) {
+                    trustedTime = (max(parsed, old), receivedUptime)
+                } else if roundTrip >= 0, roundTrip <= 25,
+                          trustedTime == nil,
+                          let timestamp = next.serverTimeUTC,
+                          next.enforcementTimeZone == "America/Los_Angeles",
+                          let parsed = trustedFormatter.date(from: timestamp) {
+                    trustedTime = (parsed, receivedUptime)
+                }
                 do { try data.write(to: cache, options: .atomic); try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cache.path); active = next; lastError = "" }
                 catch { lastError = "Cannot persist policy" }
             } else { lastError = "Rejected older policy" }
