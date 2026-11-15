@@ -1,0 +1,34 @@
+name: macOS CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python server tests
+        run: python3 -m unittest discover -s tests -v
+      - name: JavaScript syntax
+        run: node --check server/app.js
+      - name: Build Swift blocking daemon
+        run: |
+          mkdir -p "$RUNNER_TEMP/macblock-swift-cache"
+          swiftc -module-cache-path "$RUNNER_TEMP/macblock-swift-cache" agent/main.swift -framework Security -o "$RUNNER_TEMP/macblock-agent"
+      - name: Validate policies with compiled agent
+        run: |
+          printf '%s\n' '{"schemaVersion":1,"revision":1,"apps":[{"name":"Roblox","bundleId":"com.roblox.RobloxPlayer","blocked":true}]}' > "$RUNNER_TEMP/valid.json"
+          "$RUNNER_TEMP/macblock-agent" --check-policy "$RUNNER_TEMP/valid.json"
+          printf '%s\n' '{"schemaVersion":1,"revision":0,"apps":[]}' > "$RUNNER_TEMP/invalid.json"
+          if "$RUNNER_TEMP/macblock-agent" --check-policy "$RUNNER_TEMP/invalid.json"; then
+            echo "Invalid policy was accepted" >&2
+            exit 1
+          fi
