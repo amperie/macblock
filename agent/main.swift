@@ -137,6 +137,17 @@ func enforce() {
     }
 }
 
+if CommandLine.arguments.contains("--check-schedule") {
+    guard CommandLine.arguments.count == 4,
+          let date = trustedFormatter.date(from: CommandLine.arguments[2]),
+          let data = try? Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[3])),
+          let policy = try? decoder.decode(Policy.self, from: data),
+          (try? policy.validate()) != nil,
+          let schedule = policy.schedule, let identifier = policy.enforcementTimeZone,
+          let zone = TimeZone(identifier: identifier) else { exit(2) }
+    print(schedule.isBlocked(at: date, zone: zone) ? "blocked" : "allowed")
+    exit(0)
+}
 if CommandLine.arguments.contains("--check-policy") {
     do {
         let file = CommandLine.arguments.last!
