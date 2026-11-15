@@ -44,6 +44,7 @@ function render() {
     remove.onclick = () => { state.policy.apps = state.policy.apps.filter(a => a !== app); dirty = true; render(); $('message').textContent = 'Unsaved changes'; };
     row.append(text, label, remove); $('apps').append(row);
   }
+  renderPerAppRules();
   const device = state.device;
   const age = device ? Date.now() - Date.parse(device.lastSeen) : Infinity;
   $('status').textContent = !device ? 'Waiting for the Mac to connect' : `${age > 300000 ? 'Mac offline or overdue' : 'Mac connected'} · Last seen ${new Date(device.lastSeen).toLocaleString()} · ${device.report.revision === state.policy.revision ? 'Settings received' : 'Update pending'} (revision ${device.report.revision}/${state.policy.revision})`;
@@ -104,3 +105,47 @@ for (const id of ['enforcement-zone', 'schedule-enabled', 'schedule-start', 'sch
 }
 const originalLoad = load;
 load = async function () { await originalLoad(); await loadActivity(); };
+
+function renderPerAppRules() {
+  const container = $('per-app-rules'); container.replaceChildren();
+  state.policy.appRules ||= {};
+  state.policy.overrides ||= {};
+  for (const app of state.policy.apps) {
+    const rule = state.policy.appRules[app.bundleId] || {schedule:{enabled:false,start:'21:00',end:'07:00'},minutes:null};
+    const wrap = document.createElement('div'); wrap.className = 'app';
+    const heading = document.createElement('strong'); heading.textContent = app.name;
+    const quota = document.createElement('input'); quota.type = 'number'; quota.min = 1; quota.max = 1440;
+    quota.placeholder = 'No daily limit'; quota.value = rule.minutes ?? '';
+    quota.setAttribute('aria-label', app.name + ' daily minutes');
+    const enabled = document.createElement('input'); enabled.type = 'checkbox'; enabled.checked = rule.schedule.enabled;
+    enabled.setAttribute('aria-label', app.name + ' schedule enabled');
+    const start = document.createElement('input'); start.type = 'time'; start.value = rule.schedule.start;
+    const end = document.createElement('input'); end.type = 'time'; end.value = rule.schedule.end;
+    const override = document.createElement('button'); override.type = 'button'; override.className = 'secondary';
+    override.textContent = 'Allow 30 min';
+    const markDirty = () => {
+      state.policy.appRules[app.bundleId] = {
+        schedule:{enabled:enabled.checked,start:start.value,end:end.value},
+        minutes:quota.value === '' ? null : Number(quota.value)
+      };
+      dirty = true; $('message').textContent = 'Unsaved changes';
+    };
+    for (const field of [quota,enabled,start,end]) field.addEventListener('change',markDirty);
+    override.onclick = () => {
+      state.policy.overrides[app.bundleId] = new Date(Date.now() + 30 * 60000).toISOString();
+      dirty = true; $('message').textContent = 'Temporary allowance pending. Save changes to apply.';
+    };
+    wrap.append(heading,quota,enabled,start,end,override);
+    container.append(wrap);
+  }
+}
+async function loadAlerts() {
+  const data = await api('/api/admin/alerts');
+  $('alerts').replaceChildren();
+  for (const item of data.alerts) {
+    const line = document.createElement('p');
+    line.textContent = `${new Date(item.created).toLocaleString()} · ${item.message}`;
+    $('alerts').append(line);
+  }
+}
+$('alerts-refresh').onclick = action(loadAlerts);
