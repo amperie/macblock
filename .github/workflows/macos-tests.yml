@@ -43,3 +43,12 @@ jobs:
         run: |
           bash -n agent/install.sh agent/install-monitor.sh
           plutil -lint agent/com.macblock.foreground.plist agent/com.macblock.agent.plist
+      - name: Test timezone-independent overnight schedules
+        run: |
+          cat > "$RUNNER_TEMP/schedule.json" <<'JSON'
+          {"schemaVersion":1,"revision":1,"apps":[{"name":"Roblox","bundleId":"com.roblox.RobloxPlayer","blocked":false}],"enforcementTimeZone":"America/Los_Angeles","schedule":{"enabled":true,"start":"21:00","end":"07:00"}}
+          JSON
+          test "$("$RUNNER_TEMP/macblock-agent" --check-schedule '2026-11-15T06:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = blocked
+          test "$("$RUNNER_TEMP/macblock-agent" --check-schedule '2026-11-15T20:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = allowed
+          test "$("$RUNNER_TEMP/macblock-agent" --check-schedule '2026-07-15T05:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = blocked
+          test "$("$RUNNER_TEMP/macblock-agent" --check-schedule '2026-07-15T19:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = allowed
