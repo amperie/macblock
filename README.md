@@ -179,3 +179,24 @@ resynchronizes. Static blocks remain effective independently of the clock.
 
 This is scheduled blocking, **not a daily foreground usage quota**. Daily
 budgets require additional trusted accounting across reboot and offline periods.
+
+## Daily foreground allowance (experimental)
+
+The parent dashboard has a daily allowance switch, app selector, and minutes
+per day (1–1440). The default is 60 minutes for Roblox, **disabled** until
+enabled. The server accumulates foreground time from monitor heartbeats using
+server receipt timestamps, and stores usage by date in the parent-selected
+enforcement timezone. A Mac time-zone change cannot reset that date.
+
+The root daemon fetches the usage decision every 30 seconds when the quota
+is enabled. It blocks the selected app when the allowance is exhausted, or
+when the monitor, trusted clock, or server policy refresh becomes stale.
+The allowance is approximate: 15-second monitor heartbeat plus polling
+latency may allow some overrun. No quota is reset on daemon restart.
+
+**Security limitation:** The monitor runs as the child's user and can be
+stopped or impersonated by that user; this is not tamper-resistant enforcement.
+It must be moved behind privileged authenticated IPC before treating the
+activity measurement as trustworthy. A disabled monitor will cause the
+limited app to be blocked once the server reports stale monitoring.
+The agent and VPS must both be updated before enabling quotas.
