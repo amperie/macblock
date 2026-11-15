@@ -191,7 +191,9 @@ def init_db():
 def prune_history(conn, now=None):
     """Retain 90 rolling calendar days by default; keep current quota data intact."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
-    cutoff = (now - datetime.timedelta(days=RETENTION_DAYS)).date().isoformat()
+    config = json.loads(conn.execute('SELECT payload FROM state WHERE id=1').fetchone()[0])
+    zone = ZoneInfo(config.get('enforcementTimeZone', 'America/Los_Angeles'))
+    cutoff = (now.astimezone(zone).date() - datetime.timedelta(days=RETENTION_DAYS - 1)).isoformat()
     conn.execute('DELETE FROM quota_usage WHERE day < ?', (cutoff,))
     conn.execute('DELETE FROM website_usage WHERE day < ?', (cutoff,))
     conn.execute('DELETE FROM browser_sessions WHERE seen < ?', ((now - datetime.timedelta(days=1)).isoformat(),))
