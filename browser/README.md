@@ -70,3 +70,22 @@ The extension ID, update URL, signed Safari package, and any required Apple
 signing credentials are not in this repository. Without these, a complete
 automatic installation is impossible. The current Safari implementation also
 needs an actual Safari-managed-settings compatibility test before deployment.
+
+## Website usage telemetry (experimental)
+
+The browser extension samples the foreground tab hostname approximately once
+per minute while the browser window is focused and the user is not idle.
+It sends `{clientId,domain}` to the authenticated `/api/browser/activity`
+endpoint; no full URLs, titles, paths, or query strings are transmitted.
+Each browser installation has its own random client ID. The server estimates
+elapsed seconds between consecutive observations, caps gaps at 90 seconds,
+and aggregates by the parent-selected time zone. The parent dashboard exposes
+daily and Monday-start weekly totals via `/api/admin/usage`.
+
+This is **not precise per-site screen time**: quick visits may be missed,
+idle/focus transitions can overcount up to the next observation, and Safari
+API compatibility is not yet validated. The extension requires `tabs` and
+`idle` permissions, which must be reviewed when installing/updating it.
+Website usage requires the extension to be enabled; the Mac daemon cannot
+supply per-site activity on its own. Default retention is 90 calendar days,
+configurable with `MACBLOCK_RETENTION_DAYS`.
