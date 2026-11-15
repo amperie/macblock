@@ -278,7 +278,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in assets:
             name, mime = assets[self.path]
             return self.reply(200, Path(__file__).with_name(name).read_text(), mime)
-        if self.path == '/api/device/policy':
+        if self.path == '/api/admin/health':
+            if self.authorized(ADMIN):
+                now = datetime.datetime.now(datetime.timezone.utc)
+                with sqlite3.connect(DB) as conn:
+                    device = conn.execute('SELECT seen FROM status WHERE id=1').fetchone()
+                    monitor = conn.execute('SELECT seen FROM activity_current WHERE id=1').fetchone()
+                device_age = (now - parse_time(device[0])).total_seconds() if device else None
+                monitor_age = (now - parse_time(monitor[0])).total_seconds() if monitor else None
+                self.reply(200, dict(
+                    deviceConnected=device_age is not None and 0 <= device_age <= 300,
+                    monitorConnected=monitor_age is not None and 0 <= monitor_age <= 90,
+                    deviceAgeSeconds=device_age, monitorAgeSeconds=monitor_age,
+                    browserProtectionVerified=False,
+                    browserProtectionReason='No authenticated browser enforcement attestation is implemented'))
+        elif self.path == '/api/device/policy':
             if self.authorized(DEVICE):
                 config = policy()
                 rules = config.get('appRules', {})
