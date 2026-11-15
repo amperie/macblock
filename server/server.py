@@ -21,6 +21,48 @@ PRESETS = [dict(name='Roblox', bundleId='com.roblox.RobloxPlayer', blocked=False
            dict(name='Opera', bundleId='com.operasoftware.Opera', blocked=False)]
 
 
+def validate_quota(quota):
+    if not isinstance(quota, dict) or set(quota) != {'enabled', 'bundleId', 'minutes'}:
+        raise ValueError('Invalid quota')
+    if type(quota['enabled']) is not bool or type(quota['minutes']) is not int or not 1 <= quota['minutes'] <= 1440:
+        raise ValueError('Invalid quota')
+    if not isinstance(quota['bundleId'], str) or not re.fullmatch(r'[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)+', quota['bundleId']):
+        raise ValueError('Invalid quota app')
+    return quota
+
+
+def quota_state(config, now=None):
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    quota = config.get('quota', dict(enabled=False, bundleId='com.roblox.RobloxPlayer', minutes=60))
+    zone = ZoneInfo(config.get('enforcementTimeZone', 'America/Los_Angeles'))
+    day = now.astimezone(zone).date().isoformat()
+    with sqlite3.connect(DB) as conn:
+        row = conn.execute('SELECT seconds FROM quota_usage WHERE day=? AND bundle_id=?',
+                           (day, quota['bundleId'])).fetchone()
+        current = conn.execute('SELECT seen FROM activity_current WHERE id=1').fetchone()
+    seconds = row[0] if row else 0.0
+    fresh = bool(current and (now - parse_time(current[0])).total_seconds() <= 90)
+    return dict(enabled=quota['enabled'], bundleId=quota['bundleId'],
+                usedSeconds=seconds, limitSeconds=quota['minutes'] * 60,
+                exceeded=seconds >= quota['minutes'] * 60,
+                monitoringFresh=fresh, day=day)
+
+
+def record_heartbeat(conn, current, config, now):
+    zone = ZoneInfo(config.get('enforcementTimeZone', 'America/Los_Angeles'))
+    day = now.astimezone(zone).date().isoformat()
+    previous = conn.execute('SELECT payload, seen FROM activity_current WHERE id=1').fetchone()
+    if current and previous and previous[0] != 'null':
+        old = json.loads(previous[0])
+        elapsed = (now - parse_time(previous[1])).total_seconds()
+        if old and old.get('bundleId') == current.get('bundleId') and 0 < elapsed <= 90:
+            previous_day = parse_time(previous[1]).astimezone(zone).date().isoformat()
+            if previous_day == day:
+                conn.execute('INSERT INTO quota_usage(day,bundle_id,seconds) VALUES(?,?,?) '
+                             'ON CONFLICT(day,bundle_id) DO UPDATE SET seconds=seconds+excluded.seconds',
+                             (day, current['bundleId'], elapsed))
+
+
 def validate_schedule(schedule):
     if not isinstance(schedule, dict) or set(schedule) != {'enabled', 'start', 'end'}:
         raise ValueError('Invalid schedule')
@@ -63,13 +105,16 @@ def validate_apps(apps):
 def init_db():
     with sqlite3.connect(DB) as conn:
         conn.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
-        conn.execute('INSERT OR IGNORE INTO state VALUES (1, ?)', (json.dumps(dict(schemaVersion=1, revision=1, apps=PRESETS, enforcementTimeZone='America/Los_Angeles', schedule=dict(enabled=False, start='21:00', end='07:00'))),))
+        conn.execute('INSERT OR IGNORE INTO state VALUES (1, ?)', (json.dumps(dict(schemaVersion=1, revision=1, apps=PRESETS, enforcementTimeZone='America/Los_Angeles', schedule=dict(enabled=False, start='21:00', end='07:00'), quota=dict(enabled=False, bundleId='com.roblox.RobloxPlayer', minutes=60))),))
         row = conn.execute('SELECT payload FROM state WHERE id=1').fetchone()
         existing = json.loads(row[0])
         if 'enforcementTimeZone' not in existing or 'schedule' not in existing:
             existing.setdefault('enforcementTimeZone', 'America/Los_Angeles')
             existing.setdefault('schedule', dict(enabled=False, start='21:00', end='07:00'))
             conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(existing),))
+        existing.setdefault('quota', dict(enabled=False, bundleId='com.roblox.RobloxPlayer', minutes=60))
+        conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(existing),))
+        conn.execute('CREATE TABLE IF NOT EXISTS quota_usage (day TEXT NOT NULL, bundle_id TEXT NOT NULL, seconds REAL NOT NULL, PRIMARY KEY(day,bundle_id))')
         conn.execute('CREATE TABLE IF NOT EXISTS status (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity (event_id TEXT PRIMARY KEY, bundle_id TEXT NOT NULL, app_name TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity_current (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
@@ -164,7 +209,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, Path(__file__).with_name(name).read_text(), mime)
         if self.path == '/api/device/policy':
             if self.authorized(DEVICE):
-                self.reply(200, dict(policy(), serverTimeUTC=datetime.datetime.now(datetime.timezone.utc).isoformat()))
+                config = policy()
+                self.reply(200, dict(config, serverTimeUTC=datetime.datetime.now(datetime.timezone.utc).isoformat(), quotaState=quota_state(config)))
         elif self.path == '/api/admin/activity':
             if self.authorized(ADMIN):
                 with sqlite3.connect(DB) as conn:
@@ -177,7 +223,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.authorized(ADMIN):
                 with sqlite3.connect(DB) as conn:
                     row = conn.execute('SELECT payload, seen FROM status WHERE id=1').fetchone()
-                self.reply(200, dict(timeZones=TIME_ZONES, policy=policy(), device=dict(report=json.loads(row[0]), lastSeen=row[1]) if row else None))
+                config = policy()
+                self.reply(200, dict(timeZones=TIME_ZONES, policy=config, quotaState=quota_state(config), device=dict(report=json.loads(row[0]), lastSeen=row[1]) if row else None))
         else:
             self.reply(404, {'error': 'Not found'})
 
@@ -193,6 +240,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/device/activity':
                 events, current = validate_activity(data)
                 with LOCK, sqlite3.connect(DB) as conn:
+                    now = datetime.datetime.now(datetime.timezone.utc)
+                    config = json.loads(conn.execute('SELECT payload FROM state WHERE id=1').fetchone()[0])
+                    record_heartbeat(conn, current, config, now)
                     conn.executemany('INSERT OR IGNORE INTO activity VALUES (?,?,?,?,?)', events)
                     cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)).isoformat()
                     conn.execute('DELETE FROM activity WHERE end < ?', (cutoff,))
@@ -206,7 +256,8 @@ class Handler(BaseHTTPRequestHandler):
                         return self.reply(409, {'error': 'Settings changed. Reload before saving.'})
                     tz = validate_timezone(data.get('enforcementTimeZone', current.get('enforcementTimeZone', 'America/Los_Angeles')))
                     schedule = validate_schedule(data.get('schedule', current.get('schedule', dict(enabled=False, start='21:00', end='07:00'))))
-                    current.update(apps=apps, enforcementTimeZone=tz, schedule=schedule, revision=current['revision'] + 1)
+                    quota = validate_quota(data.get('quota', current.get('quota', dict(enabled=False, bundleId='com.roblox.RobloxPlayer', minutes=60))))
+                    current.update(apps=apps, enforcementTimeZone=tz, schedule=schedule, quota=quota, revision=current['revision'] + 1)
                     conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(current),))
                 self.reply(200, current)
             else:
