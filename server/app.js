@@ -7,6 +7,7 @@ async function api(path, body) {
   return data;
 }
 function render() {
+  $('blocked-domains').value = (state.policy.blockedDomains || []).join('\n');
   const zone = $('enforcement-zone');
   zone.replaceChildren();
   for (const id of state.timeZones || ['America/Los_Angeles']) {
@@ -149,3 +150,8 @@ async function loadAlerts() {
   }
 }
 $('alerts-refresh').onclick = action(loadAlerts);
+
+$('blocked-domains').addEventListener('change', () => {
+  state.policy.blockedDomains = [...new Set($('blocked-domains').value.split(/\r?\n/).map(s => s.trim().toLowerCase()).filter(Boolean))];
+  dirty = true; $('message').textContent = 'Unsaved changes';
+});
