@@ -3,6 +3,7 @@ import os
 import plistlib
 import re
 import uuid
+import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -16,7 +17,7 @@ if not re.fullmatch(r'[a-p]{32}', extension_id):
     raise ValueError('Invalid Chrome extension ID')
 for value in (update_url, server_url):
     parts = urlsplit(value)
-    if parts.scheme != 'https' or not parts.hostname or parts.username or parts.password or parts.fragment:
+    if parts.scheme != 'https' or not parts.hostname or parts.username or parts.password or parts.fragment or any(ch.isspace() for ch in value):
         raise ValueError('HTTPS URL without embedded credentials required')
 if len(token) < 32:
     raise ValueError('Invalid browser token')
@@ -48,6 +49,16 @@ profile = {
     }],
 }
 destination.parent.mkdir(parents=True, exist_ok=True)
-with destination.open('wb') as file:
-    plistlib.dump(profile, file)
+if destination.is_symlink():
+    raise ValueError('Refusing symlinked profile destination')
+fd, temporary = tempfile.mkstemp(prefix='.macblock-', suffix='.mobileconfig', dir=destination.parent)
+try:
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, 'wb') as file:
+        plistlib.dump(profile, file)
+    os.replace(temporary, destination)
+except BaseException:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+    raise
 print('Generated', destination)
