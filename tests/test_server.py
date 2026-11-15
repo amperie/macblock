@@ -154,9 +154,11 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(device['appQuotaStates']['com.roblox.RobloxPlayer']['limitSeconds'], 2700)
         self.assertTrue(device['appSchedules']['com.roblox.RobloxPlayer']['enabled'])
         self.assertEqual(device['overrides']['com.roblox.RobloxPlayer'], until)
+        expired = dict(result, overrides={'com.roblox.RobloxPlayer': (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=3)).isoformat()})
+        self.assertEqual(self.call('/api/admin/policy', s.ADMIN, expired)[1]['overrides'], {})
         self.assertEqual(self.call('/api/admin/alerts', s.DEVICE)[0], 401)
         self.assertTrue(self.call('/api/admin/alerts', s.ADMIN)[1]['alerts'])
-        bad = dict(result, appRules={'com.example.unknown': {
+        bad = dict(result, revision=3, appRules={'com.example.unknown': {
             'schedule': dict(enabled=True, start='20:00', end='08:00'), 'minutes': 60}})
         self.assertEqual(self.call('/api/admin/policy', s.ADMIN, bad)[0], 400)
 
