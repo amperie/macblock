@@ -161,3 +161,21 @@ enforced by this time anchor yet. Those features must use trusted time and
 fail closed when no trusted time is available. Do not use the local Mac clock
 as a fallback. The existing static blocked-app policy continues to operate
 offline without a time anchor.
+
+## Parent-selected enforcement timezone and nightly schedule
+
+The dashboard provides a dropdown of supported IANA time zones and a nightly
+restriction switch with start/end times (24-hour format). The default schedule
+is 21:00–07:00 and **disabled** until the parent enables it. When enabled,
+**all apps listed in the MacBlock policy** are blocked during that interval;
+the individual `blocked` switch remains an unconditional block.
+
+The timezone and schedule are persisted in the server policy, delivered to
+the root daemon, and evaluated with server-anchored UTC time using Apple's
+timezone database. Overnight intervals and daylight saving time are supported.
+The Mac's configured timezone is ignored. When a schedule is enabled but no
+valid server time is available, listed apps remain blocked until the daemon
+resynchronizes. Static blocks remain effective independently of the clock.
+
+This is scheduled blocking, **not a daily foreground usage quota**. Daily
+budgets require additional trusted accounting across reboot and offline periods.
