@@ -69,7 +69,7 @@ def validate_domains(domains):
     clean = []
     for domain in domains:
         if not isinstance(domain, str) or len(domain) > 253 or not re.fullmatch(
-                r'[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+', domain):
+                r'[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+', domain):
             raise ValueError('Invalid domain')
         clean.append(domain.lower())
     if len(set(clean)) != len(clean):
