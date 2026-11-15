@@ -50,7 +50,7 @@ async function loadActivity() {
   const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
   for (const e of data.events) {
     if (Date.parse(e.endedAt) < dayStart || Date.parse(e.startedAt) >= dayEnd) continue;
-    const seconds = Math.max(0, (Date.parse(e.endedAt) - Date.parse(e.startedAt)) / 1000);
+    const seconds = Math.max(0, (Math.min(Date.parse(e.endedAt), dayEnd) - Math.max(Date.parse(e.startedAt), dayStart)) / 1000);
     totals.set(e.appName, (totals.get(e.appName) || 0) + seconds);
   }
   const summary = document.createElement('p');
