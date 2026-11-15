@@ -13,11 +13,11 @@ class BrowserInstallerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = pathlib.Path(directory) / 'profile.mobileconfig'
             env = dict(os.environ,
-                MACBLOCK_CHROME_ID='a' * 32,
-                MACBLOCK_CHROME_UPDATE='https://updates.example.test/update.xml',
-                MACBLOCK_BROWSER_URL='https://parent.example.test',
-                MACBLOCK_BROWSER_TOKEN='b' * 40,
-                MACBLOCK_PROFILE_OUTPUT=str(output))
+                ORBIT_CHROME_ID='a' * 32,
+                ORBIT_CHROME_UPDATE='https://updates.example.test/update.xml',
+                ORBIT_BROWSER_URL='https://parent.example.test',
+                ORBIT_BROWSER_TOKEN='b' * 40,
+                ORBIT_PROFILE_OUTPUT=str(output))
             subprocess.run([sys.executable, str(ROOT/'browser/generate-profile.py')],
                            env=env, check=True, capture_output=True)
             profile = plistlib.loads(output.read_bytes())
@@ -27,7 +27,7 @@ class BrowserInstallerTests(unittest.TestCase):
             self.assertEqual(settings['installation_mode'], 'force_installed')
             self.assertEqual(settings['policy']['browserToken'], 'b' * 40)
             for invalid in ['http://example.test', 'https://user:pass@example.test', 'https://example.test/#fragment']:
-                env['MACBLOCK_BROWSER_URL'] = invalid
+                env['ORBIT_BROWSER_URL'] = invalid
                 result = subprocess.run([sys.executable, str(ROOT/'browser/generate-profile.py')],
                                         env=env, capture_output=True)
                 self.assertNotEqual(result.returncode, 0)

@@ -120,7 +120,7 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(self.call('/api/admin/state', s.ADMIN)[1]['device']['report']['revision'], 2)
 
     def test_invalid_rules_preserve_previous_policy(self):
-        for bid in ['com.apple.finder', 'com.macblock.agent', 'invalid', 'com.example.app']:
+        for bid in ['com.apple.finder', 'com.side-forge.orbit.agent', 'invalid', 'com.example.app']:
             rule = dict(name='App', bundleId=bid, blocked=True)
             apps = [rule, rule] if bid == 'com.example.app' else [rule]
             self.assertEqual(self.call('/api/admin/policy', s.ADMIN, dict(revision=1, apps=apps))[0], 400)
