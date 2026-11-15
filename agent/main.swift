@@ -103,7 +103,7 @@ struct Policy: Codable {
                   app.bundleId.count <= 255,
                   app.bundleId.range(of: "^[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)+$", options: .regularExpression) != nil,
                   !app.bundleId.lowercased().hasPrefix("com.apple."),
-                  !app.bundleId.lowercased().hasPrefix("com.macblock."),
+                  !app.bundleId.lowercased().hasPrefix("com.side-forge.orbit."),
                   seen.insert(app.bundleId).inserted else { throw Failure.invalidPolicy }
         }
     }
@@ -112,7 +112,7 @@ struct Settings: Decodable { let serverURL: String; let deviceToken: String }
 enum Failure: Error { case invalidPolicy, invalidSettings, serverRejected, timeout, rollback }
 let encoder = JSONEncoder()
 let decoder = JSONDecoder()
-let root = URL(fileURLWithPath: "/Library/Application Support/MacBlock", isDirectory: true)
+let root = URL(fileURLWithPath: "/Library/Application Support/Orbit", isDirectory: true)
 let cache = root.appendingPathComponent("policy.json")
 var lastError = ""
 var active: Policy?
@@ -266,7 +266,7 @@ do {
     settings = try decoder.decode(Settings.self, from: Data(contentsOf: root.appendingPathComponent("settings.json")))
     guard let url = URL(string: settings.serverURL), url.scheme == "https", url.host != nil, url.user == nil, url.query == nil, url.fragment == nil, settings.deviceToken.count >= 32 else { throw Failure.invalidSettings }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-} catch { fputs("Invalid or missing MacBlock settings.\n", stderr); exit(1) }
+} catch { fputs("Invalid or missing Orbit settings.\n", stderr); exit(1) }
 do { let saved = try decoder.decode(Policy.self, from: Data(contentsOf: cache)); try saved.validate(); active = saved }
 catch { lastError = "No valid cached policy; initial enrollment required" }
 // Networking runs separately so a slow/offline server never pauses enforcement.

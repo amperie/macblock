@@ -25,14 +25,14 @@ jobs:
           python3 -m json.tool browser/chrome/manifest.json >/dev/null
       - name: Build Swift blocking daemon
         run: |
-          mkdir -p "$RUNNER_TEMP/macblock-swift-cache"
-          swiftc -module-cache-path "$RUNNER_TEMP/macblock-swift-cache" agent/main.swift -framework Security -o "$RUNNER_TEMP/macblock-agent"
+          mkdir -p "$RUNNER_TEMP/orbit-swift-cache"
+          swiftc -module-cache-path "$RUNNER_TEMP/orbit-swift-cache" agent/main.swift -framework Security -o "$RUNNER_TEMP/orbit-agent"
       - name: Validate policies with compiled agent
         run: |
           printf '%s\n' '{"schemaVersion":1,"revision":1,"apps":[{"name":"Roblox","bundleId":"com.roblox.RobloxPlayer","blocked":true}]}' > "$RUNNER_TEMP/valid.json"
-          "$RUNNER_TEMP/macblock-agent" --check-policy "$RUNNER_TEMP/valid.json"
+          "$RUNNER_TEMP/orbit-agent" --check-policy "$RUNNER_TEMP/valid.json"
           printf '%s\n' '{"schemaVersion":1,"revision":0,"apps":[]}' > "$RUNNER_TEMP/invalid.json"
-          if "$RUNNER_TEMP/macblock-agent" --check-policy "$RUNNER_TEMP/invalid.json"; then
+          if "$RUNNER_TEMP/orbit-agent" --check-policy "$RUNNER_TEMP/invalid.json"; then
             echo "Invalid policy was accepted" >&2
             exit 1
           fi
@@ -41,14 +41,14 @@ jobs:
           cat > "$RUNNER_TEMP/invalid-derived.json" <<'JSON'
           {"schemaVersion":1,"revision":2,"apps":[{"name":"Roblox","bundleId":"com.roblox.RobloxPlayer","blocked":false}],"appSchedules":{"com.example.missing":{"enabled":true,"start":"20:00","end":"08:00"}}}
           JSON
-          if "$RUNNER_TEMP/macblock-agent" --check-policy "$RUNNER_TEMP/invalid-derived.json"; then
+          if "$RUNNER_TEMP/orbit-agent" --check-policy "$RUNNER_TEMP/invalid-derived.json"; then
             echo "Agent accepted unlisted app schedule" >&2
             exit 1
           fi
           cat > "$RUNNER_TEMP/invalid-quota.json" <<'JSON'
           {"schemaVersion":1,"revision":2,"apps":[{"name":"Roblox","bundleId":"com.roblox.RobloxPlayer","blocked":false}],"appQuotaStates":{"com.roblox.RobloxPlayer":{"enabled":true,"bundleId":"com.example.other","usedSeconds":0,"limitSeconds":3600,"exceeded":false,"monitoringFresh":true,"day":"2026-11-15"}}}
           JSON
-          if "$RUNNER_TEMP/macblock-agent" --check-policy "$RUNNER_TEMP/invalid-quota.json"; then
+          if "$RUNNER_TEMP/orbit-agent" --check-policy "$RUNNER_TEMP/invalid-quota.json"; then
             echo "Agent accepted mismatched quota" >&2
             exit 1
           fi
@@ -58,18 +58,18 @@ jobs:
           "$RUNNER_TEMP/focus-tracker-tests"
       - name: Build foreground GUI monitor
         run: |
-          swiftc agent/FocusTracker.swift agent/ForegroundMonitor.swift -framework AppKit -framework IOKit -o "$RUNNER_TEMP/macblock-monitor"
+          swiftc agent/FocusTracker.swift agent/ForegroundMonitor.swift -framework AppKit -framework IOKit -o "$RUNNER_TEMP/orbit-monitor"
       - name: Validate installation scripts and LaunchAgent plist
         run: |
           bash -n agent/install.sh agent/install-monitor.sh browser/safari/build-project.sh browser/install-browsers.sh browser/check-browsers.sh dev/start.sh dev/stop.sh dev/daemon.sh dev/browsers.sh dev/test.sh
           python3 -m py_compile dev/https_server.py
-          plutil -lint agent/com.macblock.foreground.plist agent/com.macblock.agent.plist
+          plutil -lint agent/com.side-forge.orbit.foreground.plist agent/com.side-forge.orbit.agent.plist
       - name: Test timezone-independent overnight schedules
         run: |
           cat > "$RUNNER_TEMP/schedule.json" <<'JSON'
           {"schemaVersion":1,"revision":1,"apps":[{"name":"Roblox","bundleId":"com.roblox.RobloxPlayer","blocked":false}],"enforcementTimeZone":"America/Los_Angeles","schedule":{"enabled":true,"start":"21:00","end":"07:00"}}
           JSON
-          test "$("$RUNNER_TEMP/macblock-agent" --check-schedule '2026-11-15T06:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = blocked
-          test "$("$RUNNER_TEMP/macblock-agent" --check-schedule '2026-11-15T20:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = allowed
-          test "$("$RUNNER_TEMP/macblock-agent" --check-schedule '2026-07-15T05:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = blocked
-          test "$("$RUNNER_TEMP/macblock-agent" --check-schedule '2026-07-15T19:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = allowed
+          test "$("$RUNNER_TEMP/orbit-agent" --check-schedule '2026-11-15T06:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = blocked
+          test "$("$RUNNER_TEMP/orbit-agent" --check-schedule '2026-11-15T20:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = allowed
+          test "$("$RUNNER_TEMP/orbit-agent" --check-schedule '2026-07-15T05:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = blocked
+          test "$("$RUNNER_TEMP/orbit-agent" --check-schedule '2026-07-15T19:00:00.000Z' "$RUNNER_TEMP/schedule.json")" = allowed

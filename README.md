@@ -1,6 +1,6 @@
 # Orbit
 
-**Orbit** is the user-facing name of MacBlock. The GitHub repository, daemon identifiers, file paths, API credentials, and service labels deliberately retain `macblock` for compatibility. Do not rename these without a coordinated migration.
+**Orbit** is the user-facing name of Orbit. The GitHub repository, daemon identifiers, file paths, API credentials, and service labels deliberately retain `orbit` for compatibility. Do not rename these without a coordinated migration.
 
 Remote parental controls for macOS: a Python parent dashboard and a privileged Swift agent that terminates blocked signed applications. Foreground monitoring supports usage history, schedules, quotas and temporary allowances. Chrome and Safari WebExtension integration is **experimental**.
 
@@ -14,11 +14,11 @@ Prerequisites: macOS, Python 3.9+, Node.js, Xcode Command Line Tools, and `mkcer
 brew install mkcert
 mkcert -install
 git clone https://github.com/amperie/macblock.git
-cd macblock
+cd orbit
 bash dev/start.sh
 ```
 
-The launcher starts an HTTPS server at **https://localhost:18443/**, creates a private SQLite database and random development credentials, starts the foreground monitor, and installs the privileged daemon for actual app blocking. The parent token is printed in the terminal. It does not replace an existing MacBlock daemon.
+The launcher starts an HTTPS server at **https://localhost:18443/**, creates a private SQLite database and random development credentials, starts the foreground monitor, and installs the privileged daemon for actual app blocking. The parent token is printed in the terminal. It does not replace an existing Orbit daemon.
 
 ```bash
 bash dev/start.sh --no-enforce  # No root daemon; test dashboard/monitor only
@@ -28,11 +28,11 @@ bash dev/browsers.sh            # Prepare local Chrome extension and Safari Xcod
 bash dev/stop.sh                # Stop local processes, uninstall and verify dev daemon
 ```
 
-**Ctrl-C or normal script exit calls `dev/stop.sh` automatically.** Only a daemon tagged as belonging to the development session can be uninstalled. The stop script refuses to remove a pre-existing or unowned daemon and reports if cleanup is incomplete. A forced shutdown, crash, power loss, or lost sudo authorization can prevent automatic cleanup; run `bash dev/stop.sh` to recover. It requires administrator authorization to remove the root daemon. Development credentials and builds live in the Git-ignored `.macblock-dev/` directory.
+**Ctrl-C or normal script exit calls `dev/stop.sh` automatically.** Only a daemon tagged as belonging to the development session can be uninstalled. The stop script refuses to remove a pre-existing or unowned daemon and reports if cleanup is incomplete. A forced shutdown, crash, power loss, or lost sudo authorization can prevent automatic cleanup; run `bash dev/stop.sh` to recover. It requires administrator authorization to remove the root daemon. Development credentials and builds live in the Git-ignored `.orbit-dev/` directory.
 
 ### Browser setup for local testing
 
-Chrome: run `bash dev/browsers.sh`, open `chrome://extensions`, enable Developer Mode, click **Load unpacked**, and select `.macblock-dev/chrome-extension`.
+Chrome: run `bash dev/browsers.sh`, open `chrome://extensions`, enable Developer Mode, click **Load unpacked**, and select `.orbit-dev/chrome-extension`.
 
 Safari: the same script attempts to generate an Xcode Safari Web Extension project. With full Xcode installed, choose a signing team, build and run the containing app, then enable its extension in Safari Settings. **Neither browser extension is silently registered or enabled by the script.** Browser filtering must be verified interactively.
 
@@ -57,11 +57,11 @@ See [dev/README.md](dev/README.md) for more detail.
 
 ### Security limitations
 
-Usage history is retained for 90 local calendar days by default; set `MACBLOCK_RETENTION_DAYS` (1–3650) to change it. Pruning runs on server startup and incoming telemetry. The dashboard shows app and website totals by day and Monday-start week. Website tracking stores domain names, not URLs, and is approximate. Browser extension permissions include tabs and idle; actual Safari compatibility remains unverified.\n\nThe foreground monitor is owned by the logged-in user; its activity reports are not tamper-resistant. The daemon uses code-signing identifiers to find apps and sends SIGKILL; unsaved application data may be lost. A standard child account and private administrator password are strongly recommended. Browser extensions can be disabled or bypassed through unapproved browsers unless additional management is deployed. Do not rely on this software as fully bypass-resistant parental control until testing on the target Mac is complete.
+Usage history is retained for 90 local calendar days by default; set `ORBIT_RETENTION_DAYS` (1–3650) to change it. Pruning runs on server startup and incoming telemetry. The dashboard shows app and website totals by day and Monday-start week. Website tracking stores domain names, not URLs, and is approximate. Browser extension permissions include tabs and idle; actual Safari compatibility remains unverified.\n\nThe foreground monitor is owned by the logged-in user; its activity reports are not tamper-resistant. The daemon uses code-signing identifiers to find apps and sends SIGKILL; unsaved application data may be lost. A standard child account and private administrator password are strongly recommended. Browser extensions can be disabled or bypassed through unapproved browsers unless additional management is deployed. Do not rely on this software as fully bypass-resistant parental control until testing on the target Mac is complete.
 
 ## Deploying the server to a VPS
 
-Run `server/server.py` behind an HTTPS reverse proxy bound to `127.0.0.1`, with a persistent SQLite database. Set four distinct random bearer tokens of at least 32 characters: `MACBLOCK_ADMIN_TOKEN`, `MACBLOCK_DEVICE_TOKEN`, `MACBLOCK_ACTIVITY_TOKEN`, and `MACBLOCK_BROWSER_TOKEN`. Do not expose the Python server directly to the Internet. See `deploy/macblock.service` for the systemd service and `browser/README.md` for extension provisioning.
+Run `server/server.py` behind an HTTPS reverse proxy bound to `127.0.0.1`, with a persistent SQLite database. Set four distinct random bearer tokens of at least 32 characters: `ORBIT_ADMIN_TOKEN`, `ORBIT_DEVICE_TOKEN`, `ORBIT_ACTIVITY_TOKEN`, and `ORBIT_BROWSER_TOKEN`. Do not expose the Python server directly to the Internet. See `deploy/orbit.service` for the systemd service and `browser/README.md` for extension provisioning.
 
 ## Installing on the target Mac
 

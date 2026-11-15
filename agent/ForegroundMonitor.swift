@@ -42,7 +42,7 @@ final class ForegroundMonitor {
         guard let url = URL(string: settings.serverURL), url.scheme == "https",
               url.host != nil, url.user == nil, url.password == nil,
               url.query == nil, url.fragment == nil, settings.activityToken.count >= 32
-        else { throw NSError(domain: "MacBlock", code: 1) }
+        else { throw NSError(domain: "Orbit", code: 1) }
     }
 
     func start() {
@@ -152,16 +152,16 @@ final class ForegroundMonitor {
 struct MonitorMain {
     static func main() {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let directory = home.appendingPathComponent("Library/Application Support/MacBlock", isDirectory: true)
+        let directory = home.appendingPathComponent("Library/Application Support/Orbit", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let settingsURL = ProcessInfo.processInfo.environment["MACBLOCK_MONITOR_SETTINGS"].map { URL(fileURLWithPath: $0) } ?? directory.appendingPathComponent("monitor-settings.json")
+            let settingsURL = ProcessInfo.processInfo.environment["ORBIT_MONITOR_SETTINGS"].map { URL(fileURLWithPath: $0) } ?? directory.appendingPathComponent("monitor-settings.json")
             let settings = try JSONDecoder().decode(MonitorSettings.self, from: Data(contentsOf: settingsURL))
-            let monitor = try ForegroundMonitor(settings: settings, queueURL: ProcessInfo.processInfo.environment["MACBLOCK_MONITOR_QUEUE"].map { URL(fileURLWithPath: $0) } ?? directory.appendingPathComponent("activity-queue.json"))
+            let monitor = try ForegroundMonitor(settings: settings, queueURL: ProcessInfo.processInfo.environment["ORBIT_MONITOR_QUEUE"].map { URL(fileURLWithPath: $0) } ?? directory.appendingPathComponent("activity-queue.json"))
             monitor.start()
             RunLoop.main.run()
         } catch {
-            fputs("MacBlock monitor setup failed: \\(error)\\n", stderr)
+            fputs("Orbit monitor setup failed: \\(error)\\n", stderr)
             exit(1)
         }
     }
