@@ -63,6 +63,20 @@ def record_heartbeat(conn, current, config, now):
                              (day, current['bundleId'], elapsed))
 
 
+def validate_domains(domains):
+    if not isinstance(domains, list) or len(domains) > 100:
+        raise ValueError('Invalid domains')
+    clean = []
+    for domain in domains:
+        if not isinstance(domain, str) or len(domain) > 253 or not re.fullmatch(
+                r'[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+', domain):
+            raise ValueError('Invalid domain')
+        clean.append(domain.lower())
+    if len(set(clean)) != len(clean):
+        raise ValueError('Duplicate domain')
+    return clean
+
+
 def validate_app_rules(rules, apps):
     if not isinstance(rules, dict) or len(rules) > 100:
         raise ValueError('Invalid per-app rules')
@@ -149,6 +163,7 @@ def init_db():
             existing.setdefault('schedule', dict(enabled=False, start='21:00', end='07:00'))
             conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(existing),))
         existing.setdefault('quota', dict(enabled=False, bundleId='com.roblox.RobloxPlayer', minutes=60))
+        existing.setdefault('blockedDomains', [])
         existing.setdefault('appRules', {})
         existing.setdefault('overrides', {})
         conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(existing),))
@@ -311,9 +326,10 @@ class Handler(BaseHTTPRequestHandler):
                     quota = validate_quota(data.get('quota', current.get('quota', dict(enabled=False, bundleId='com.roblox.RobloxPlayer', minutes=60))))
                     if quota['enabled'] and quota['bundleId'] not in {app['bundleId'] for app in apps}:
                         raise ValueError('Quota app must be in the policy')
+                    domains = validate_domains(data.get('blockedDomains', current.get('blockedDomains', [])))
                     rules = validate_app_rules(data.get('appRules', current.get('appRules', {})), apps)
                     overrides = validate_overrides(data.get('overrides', current.get('overrides', {})), apps)
-                    current.update(apps=apps, enforcementTimeZone=tz, schedule=schedule, quota=quota, appRules=rules, overrides=overrides, revision=current['revision'] + 1)
+                    current.update(apps=apps, enforcementTimeZone=tz, schedule=schedule, quota=quota, appRules=rules, overrides=overrides, blockedDomains=domains, revision=current['revision'] + 1)
                     conn.execute("INSERT INTO alerts(kind,message,created) VALUES('policy','Parent changed MacBlock restrictions',?)", (datetime.datetime.now(datetime.timezone.utc).isoformat(),))
                     conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(current),))
                 self.reply(200, current)
