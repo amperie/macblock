@@ -7,7 +7,6 @@ import sqlite3
 import threading
 import datetime
 import uuid
-import calendar
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
