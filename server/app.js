@@ -47,7 +47,7 @@ async function loadActivity() {
   const totals = new Map();
   const now = new Date();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const dayEnd = dayStart + 86400000;
+  const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
   for (const e of data.events) {
     if (Date.parse(e.endedAt) < dayStart || Date.parse(e.startedAt) >= dayEnd) continue;
     const seconds = Math.max(0, (Date.parse(e.endedAt) - Date.parse(e.startedAt)) / 1000);
