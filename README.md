@@ -1,6 +1,6 @@
 # Orbit
 
-**Orbit** is the user-facing name of Orbit. The GitHub repository, daemon identifiers, file paths, API credentials, and service labels deliberately retain `orbit` for compatibility. Do not rename these without a coordinated migration.
+**Orbit** uses the reverse-DNS namespace `com.side-forge.orbit` (based on `side-forge.com`). The application, daemon, monitor, browser extension, development tools, and environment variables have been renamed. The GitHub repository is temporarily still `amperie/macblock` until its repository setting is renamed.
 
 Remote parental controls for macOS: a Python parent dashboard and a privileged Swift agent that terminates blocked signed applications. Foreground monitoring supports usage history, schedules, quotas and temporary allowances. Chrome and Safari WebExtension integration is **experimental**.
 
