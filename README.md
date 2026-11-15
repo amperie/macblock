@@ -145,3 +145,19 @@ not an all-time aggregate.
 Test with the target Mac before relying on monitoring. GitHub Actions tests
 Swift compilation and deterministic state-machine logic, but cannot prove
 NSWorkspace notifications fire in a real interactive login session.
+
+## Server-authoritative time (foundation)
+
+The device policy response includes `serverTimeUTC` (an ISO-8601 UTC instant)
+and `enforcementTimeZone` (`America/Los_Angeles`). The root daemon anchors
+the received UTC instant to macOS monotonic system uptime. Changing the Mac's
+time zone or wall clock does not change that in-memory trusted-time estimate.
+On reboot or after a long unsynchronized interval, the anchor is invalidated.
+The server's time is transmitted over the existing authenticated HTTPS channel.
+
+**Important:** The current policy schema still only contains static app
+`blocked` switches. No bedtime schedules, daily resets, or usage budgets are
+enforced by this time anchor yet. Those features must use trusted time and
+fail closed when no trusted time is available. Do not use the local Mac clock
+as a fallback. The existing static blocked-app policy continues to operate
+offline without a time anchor.
