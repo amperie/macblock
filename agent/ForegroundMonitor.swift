@@ -11,11 +11,21 @@ struct MonitorSettings: Decodable {
 struct Upload: Encodable { let events: [FocusEvent]; let current: Current? }
 struct Current: Encodable { let bundleId: String; let appName: String; let since: Date }
 
+final class NoRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 final class ForegroundMonitor {
     private var tracker = FocusTracker()
     private let settings: MonitorSettings
     private let queueURL: URL
-    private let session = URLSession(configuration: .ephemeral)
+    private let redirectDelegate = NoRedirects()
+    private lazy var session = URLSession(configuration: .ephemeral, delegate: redirectDelegate, delegateQueue: nil)
     private var pending: [FocusEvent] = []
     private var idle = false
     private var uploading = false
