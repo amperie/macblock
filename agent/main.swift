@@ -28,6 +28,20 @@ struct Schedule: Codable {
         return a < b ? (minute >= a && minute < b) : (minute >= a || minute < b)
     }
 }
+struct Quota: Codable {
+    let enabled: Bool
+    let bundleId: String
+    let minutes: Int
+}
+struct QuotaState: Codable {
+    let enabled: Bool
+    let bundleId: String
+    let usedSeconds: Double
+    let limitSeconds: Int
+    let exceeded: Bool
+    let monitoringFresh: Bool
+    let day: String
+}
 struct AppRule: Codable { let name: String; let bundleId: String; let blocked: Bool }
 struct Policy: Codable {
     let schemaVersion: Int
@@ -36,9 +50,15 @@ struct Policy: Codable {
     let serverTimeUTC: String?
     let enforcementTimeZone: String?
     let schedule: Schedule?
+    let quota: Quota?
+    let quotaState: QuotaState?
     func validate() throws {
         guard schemaVersion == 1, revision > 0, apps.count <= 100 else { throw Failure.invalidPolicy }
         if let schedule = schedule { try schedule.validate() }
+        if let quota = quota, quota.enabled {
+            guard quota.minutes >= 1, quota.minutes <= 1440,
+                  apps.contains(where: { $0.bundleId == quota.bundleId }) else { throw Failure.invalidPolicy }
+        }
         if let zone = enforcementTimeZone, TimeZone(identifier: zone) == nil { throw Failure.invalidPolicy }
         var seen = Set<String>()
         for app in apps {
@@ -62,6 +82,7 @@ var active: Policy?
 // Server UTC anchor is advanced using monotonic uptime, not the user's clock.
 // It is intentionally memory-only: reboot/offline time is not trustworthy.
 var trustedTime: (utc: Date, uptime: TimeInterval)?
+var lastQuotaSyncUptime: TimeInterval?
 let trustedFormatter = ISO8601DateFormatter()
 trustedFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 func trustedNow() -> Date? {
@@ -112,7 +133,20 @@ func enforce() {
     } else {
         scheduleBlocked = false
     }
-    let blocked = Set(policy.apps.filter { $0.blocked || scheduleBlocked }.map { $0.bundleId })
+    let quotaBlocked: Bool
+    if let quota = policy.quota, quota.enabled {
+        let recentlySynced = lastQuotaSyncUptime.map {
+            let age = ProcessInfo.processInfo.systemUptime - $0
+            return age >= 0 && age <= 180
+        } ?? false
+        let state = policy.quotaState
+        quotaBlocked = !recentlySynced || trustedNow() == nil ||
+            state == nil || state!.bundleId != quota.bundleId ||
+            !state!.monitoringFresh || state!.exceeded
+    } else { quotaBlocked = false }
+    let blocked = Set(policy.apps.filter {
+        $0.blocked || scheduleBlocked || (quotaBlocked && $0.bundleId == policy.quota?.bundleId)
+    }.map { $0.bundleId })
     guard !blocked.isEmpty else { return }
     let task = Process(); task.executableURL = URL(fileURLWithPath: "/bin/ps")
     task.arguments = ["-axo", "pid="]
@@ -192,6 +226,11 @@ DispatchQueue.global(qos: .utility).async {
                           let parsed = trustedFormatter.date(from: timestamp) {
                     trustedTime = (parsed, receivedUptime)
                 }
+                if next.quota?.enabled == true {
+                    lastQuotaSyncUptime = receivedUptime
+                } else {
+                    lastQuotaSyncUptime = nil
+                }
                 do { try data.write(to: cache, options: .atomic); try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cache.path); active = next; lastError = "" }
                 catch { lastError = "Cannot persist policy" }
             } else { lastError = "Rejected older policy" }
@@ -201,7 +240,7 @@ DispatchQueue.global(qos: .utility).async {
         let report: [String: Any] = ["revision": active?.revision ?? 0, "agentVersion": "0.2.0", "lastError": String(lastError.prefix(500))]
         policyLock.unlock()
         do { _ = try request(settings, "/api/device/status", body: JSONSerialization.data(withJSONObject: report)) } catch { }
-        Thread.sleep(forTimeInterval: 120)
+        Thread.sleep(forTimeInterval: active?.quota?.enabled == true ? 30 : 120)
     }
 }
 while true { policyLock.lock(); enforce(); policyLock.unlock(); Thread.sleep(forTimeInterval: 2) }
