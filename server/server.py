@@ -56,7 +56,10 @@ def policy():
 def parse_time(value):
     if not isinstance(value, str) or len(value) > 40:
         raise ValueError('Invalid timestamp')
-    dt = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    try:
+        dt = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except (ValueError, OverflowError) as exc:
+        raise ValueError('Invalid timestamp') from exc
     if dt.tzinfo is None:
         raise ValueError('Timezone required')
     return dt.astimezone(datetime.timezone.utc)
@@ -72,7 +75,9 @@ def validate_activity(data):
     if current is not None:
         if not isinstance(current, dict) or set(current) != {'bundleId', 'appName', 'since'}:
             raise ValueError('Invalid current app')
-        parse_time(current['since'])
+        since = parse_time(current['since'])
+        if since > datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5):
+            raise ValueError('Future current app')
         if not isinstance(current['bundleId'], str) or not 1 <= len(current['bundleId']) <= 255 or not isinstance(current['appName'], str) or not 1 <= len(current['appName']) <= 100:
             raise ValueError('Invalid current app')
     clean = []
@@ -80,6 +85,8 @@ def validate_activity(data):
     for e in events:
         if not isinstance(e, dict) or set(e) != {'eventId', 'bundleId', 'appName', 'startedAt', 'endedAt'}:
             raise ValueError('Invalid event')
+        if not isinstance(e['eventId'], str):
+            raise ValueError('Invalid event ID')
         uid = str(uuid.UUID(e['eventId']))
         start, end = parse_time(e['startedAt']), parse_time(e['endedAt'])
         if not start < end or (end - start).total_seconds() > 86400 or end > now + datetime.timedelta(minutes=5) or start < now - datetime.timedelta(days=31):
