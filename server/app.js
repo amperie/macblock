@@ -58,7 +58,7 @@ function render() {
 }
 async function load() { if (dirty) throw Error('Save your changes before refreshing.'); state = await api('/api/admin/state'); $('controls').hidden = false; $('login').hidden = true; render(); }
 function action(fn) { return async event => { event?.preventDefault(); $('message').textContent = ''; try { await fn(); } catch (error) { $('message').textContent = error.message; } }; }
-$('connect').onclick = action(async () => { token = $('token').value; await load(); $('token').value = ''; });
+$('connect').onclick = action(async () => { token = $('token').value; await load(); $('token').value = ''; await loadUsage(); });
 $('refresh').onclick = action(load);
 $('save').onclick = action(async () => { state.policy = await api('/api/admin/policy', state.policy); dirty = false; await load(); $('message').textContent = 'Saved. Waiting for the Mac to receive these settings.'; });
 $('add').onsubmit = action(async () => { const name = $('name').value.trim(), bundleId = $('bundle').value.trim(); if (!/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(bundleId) || /^(com\.apple\.|com\.macblock\.)/i.test(bundleId)) throw Error('Use a non-system app bundle identifier.'); if (state.policy.apps.some(a => a.bundleId === bundleId)) throw Error('That app is already listed.'); state.policy.apps.push({name, bundleId, blocked: false}); dirty = true; render(); $('add').reset(); $('message').textContent = 'App added. Save changes to send it to the Mac.'; });
