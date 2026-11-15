@@ -151,6 +151,8 @@ func enforce() {
     let now = trustedNow()
     let zone = policy.enforcementTimeZone.flatMap(TimeZone.init(identifier:))
     let blocked = Set(policy.apps.filter { app in
+        // A temporary allowance must never defeat an explicit parent block.
+        if app.blocked { return true }
         if let until = policy.overrides?[app.bundleId],
            let expiration = trustedFormatter.date(from: until),
            let now = now, now < expiration { return false }
@@ -161,7 +163,17 @@ func enforce() {
         } else { appScheduled = scheduleBlocked }
         let appQuota = policy.appQuotaStates?[app.bundleId]
         let quotaSyncValid = lastQuotaSyncUptime.map { let age = ProcessInfo.processInfo.systemUptime - $0; return age >= 0 && age <= 180 } ?? false
-        let appQuotaBlocked = appQuota.map { $0.exceeded || !$0.monitoringFresh || now == nil || !quotaSyncValid } ?? false
+        let localDay = (now != nil && zone != nil) ? {
+            () -> String in
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = zone!
+            let parts = calendar.dateComponents([.year, .month, .day], from: now!)
+            return String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!)
+        }() : nil
+        let appQuotaBlocked = appQuota.map {
+            $0.exceeded || !$0.monitoringFresh || now == nil ||
+            !quotaSyncValid || localDay != $0.day
+        } ?? false
         return app.blocked || appScheduled || appQuotaBlocked ||
             (quotaBlocked && app.bundleId == policy.quota?.bundleId)
     }.map { $0.bundleId })
