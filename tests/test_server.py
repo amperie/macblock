@@ -117,6 +117,24 @@ class ControlTests(unittest.TestCase):
                           quota=dict(enabled=True, bundleId='com.example.missing', minutes=60))
         self.assertEqual(self.call('/api/admin/policy', s.ADMIN, bad_policy)[0], 400)
 
+    def test_per_app_rules_and_temporary_override(self):
+        _, p = self.call('/api/device/policy', s.DEVICE)
+        p['appRules'] = {'com.roblox.RobloxPlayer': {
+            'schedule': dict(enabled=True, start='20:00', end='08:00'), 'minutes': 45}}
+        until = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=30)).isoformat()
+        p['overrides'] = {'com.roblox.RobloxPlayer': until}
+        code, result = self.call('/api/admin/policy', s.ADMIN, p)
+        self.assertEqual(code, 200)
+        device = self.call('/api/device/policy', s.DEVICE)[1]
+        self.assertEqual(device['appQuotaStates']['com.roblox.RobloxPlayer']['limitSeconds'], 2700)
+        self.assertTrue(device['appSchedules']['com.roblox.RobloxPlayer']['enabled'])
+        self.assertEqual(device['overrides']['com.roblox.RobloxPlayer'], until)
+        self.assertEqual(self.call('/api/admin/alerts', s.DEVICE)[0], 401)
+        self.assertTrue(self.call('/api/admin/alerts', s.ADMIN)[1]['alerts'])
+        bad = dict(result, appRules={'com.example.unknown': {
+            'schedule': dict(enabled=True, start='20:00', end='08:00'), 'minutes': 60}})
+        self.assertEqual(self.call('/api/admin/policy', s.ADMIN, bad)[0], 400)
+
     def test_activity_auth_validation_and_deduplication(self):
         now = datetime.datetime.now(datetime.timezone.utc)
         start = (now - datetime.timedelta(minutes=5)).isoformat()
