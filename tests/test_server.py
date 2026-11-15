@@ -76,5 +76,10 @@ class ControlTests(unittest.TestCase):
         invalid = dict(payload, events=[dict(event, endedAt=start)])
         self.assertEqual(self.call('/api/device/activity', s.ACTIVITY, invalid)[0], 400)
         self.assertEqual(len(self.call('/api/admin/activity', s.ADMIN)[1]['events']), 1)
+        current = dict(bundleId='com.apple.Safari', appName='Safari', since=start)
+        self.assertEqual(self.call('/api/device/activity', s.ACTIVITY, dict(events=[], current=current))[0], 200)
+        self.assertEqual(self.call('/api/admin/activity', s.ADMIN)[1]['current']['appName'], 'Safari')
+        self.assertEqual(self.call('/api/device/activity', s.ACTIVITY, dict(events=[], current=None))[0], 200)
+        self.assertIsNone(self.call('/api/admin/activity', s.ADMIN)[1]['current'])
 
 if __name__ == '__main__': unittest.main()
