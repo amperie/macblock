@@ -184,7 +184,7 @@ def init_db():
         conn.execute('CREATE TABLE IF NOT EXISTS activity (event_id TEXT PRIMARY KEY, bundle_id TEXT NOT NULL, app_name TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity_current (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
         conn.execute('CREATE TABLE IF NOT EXISTS website_usage (day TEXT NOT NULL, domain TEXT NOT NULL, seconds REAL NOT NULL, PRIMARY KEY(day,domain))')
-        conn.execute('CREATE TABLE IF NOT EXISTS browser_current (id INTEGER PRIMARY KEY, domain TEXT, seen TEXT)')
+        conn.execute('CREATE TABLE IF NOT EXISTS browser_sessions (client_id TEXT PRIMARY KEY, domain TEXT, seen TEXT)')
         prune_history(conn)
 
 
@@ -194,6 +194,7 @@ def prune_history(conn, now=None):
     cutoff = (now - datetime.timedelta(days=RETENTION_DAYS)).date().isoformat()
     conn.execute('DELETE FROM quota_usage WHERE day < ?', (cutoff,))
     conn.execute('DELETE FROM website_usage WHERE day < ?', (cutoff,))
+    conn.execute('DELETE FROM browser_sessions WHERE seen < ?', ((now - datetime.timedelta(days=1)).isoformat(),))
     conn.execute('DELETE FROM activity WHERE end < ?', ((now - datetime.timedelta(days=RETENTION_DAYS)).isoformat(),))
     conn.execute('DELETE FROM alerts WHERE created < ?', ((now - datetime.timedelta(days=RETENTION_DAYS)).isoformat(),))
 
@@ -217,26 +218,31 @@ def add_daily_seconds(conn, table, key_column, key, start, end, zone):
 
 
 def record_browser_heartbeat(conn, domain, config, now):
-    previous = conn.execute('SELECT domain, seen FROM browser_current WHERE id=1').fetchone()
+    client_id, domain = domain
+    previous = conn.execute('SELECT domain, seen FROM browser_sessions WHERE client_id=?', (client_id,)).fetchone()
     if previous and previous[0]:
         start = parse_time(previous[1])
         elapsed = (now - start).total_seconds()
         if 0 < elapsed <= 90:
             zone = ZoneInfo(config.get('enforcementTimeZone', 'America/Los_Angeles'))
             add_daily_seconds(conn, 'website_usage', 'domain', previous[0], start, now, zone)
-    conn.execute('INSERT OR REPLACE INTO browser_current(id,domain,seen) VALUES(1,?,?)',
-                 (domain, now.isoformat()))
+    conn.execute('INSERT OR REPLACE INTO browser_sessions(client_id,domain,seen) VALUES(?,?,?)',
+                 (client_id, domain, now.isoformat()))
 
 
 def validate_browser_heartbeat(payload):
-    if not isinstance(payload, dict) or set(payload) != {'domain'}:
+    if not isinstance(payload, dict) or set(payload) != {'domain', 'clientId'}:
+        raise ValueError('Invalid browser heartbeat')
+    try:
+        client_id = str(uuid.UUID(payload['clientId']))
+    except (ValueError, TypeError, AttributeError):
         raise ValueError('Invalid browser heartbeat')
     domain = payload['domain']
     if domain is not None:
         if not isinstance(domain, str) or len(domain) > 253 or not re.fullmatch(
                 r'[a-z0-9-]+(?:\\.[a-z0-9-]+)+', domain):
             raise ValueError('Invalid website domain')
-    return domain
+    return client_id, domain
 
 
 def usage_report(config, now=None):
