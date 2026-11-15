@@ -106,3 +106,42 @@ swiftc -module-cache-path /tmp/macblock-swift-cache agent/main.swift -framework 
 Integration tests cover parent/device credential separation, policy revision conflicts, durable storage, status reporting, and rejection of invalid/system app rules. The agent also offers `/tmp/macblock-agent --check-policy /path/to/policy.json` for validating a policy without installing it.
 
 Before relying on it, test on the target Mac: enable each preset while the app runs; try reopening it; disable and reopen; reboot while offline; change Wi-Fi/VPN; and verify that a server outage preserves restrictions. Actual root-daemon process termination and browser UI interactions have not been verified by these automated tests. This first version does not provide a signed/notarized installer or signed auto-updates.
+
+## Foreground activity monitoring (experimental)
+
+This feature is separate from the root blocking daemon. It runs inside the logged-in
+user's graphical session, watches NSWorkspace foreground app changes, and uploads
+completed sessions and the current foreground app to the same VPS. The dashboard
+shows recent sessions and a current app only when a recent heartbeat exists.
+
+Set a **third**, distinct, 32+ character random token in the server's environment:
+
+```text
+MACBLOCK_ACTIVITY_TOKEN=<separate activity-only token>
+```
+
+Restart the VPS service after updating the environment. On the **target Mac**,
+while logged in as the account to monitor, create `agent/monitor-settings.json`:
+
+```json
+{"serverURL":"https://blocks.example.com","activityToken":"<activity-only token>"}
+```
+
+Then run `bash agent/install-monitor.sh` **as that user, not with sudo**.
+The monitor is installed in that user's Library and loaded as a per-user
+LaunchAgent. Do not commit either settings file. This monitor requires the
+user to be logged into a graphical session; it does not track the login screen.
+
+**Limitations:** Foreground time is not proof of active play. Idle detection uses
+IOHIDSystem and a 5-minute threshold, with approximate timestamps. Sleep,
+fast user switching, and login/logout produce session boundaries. Uploads are
+best-effort and queued locally; if the local user can modify the queue or
+monitor, the activity log is not tamper-proof. The activity token is scoped
+to telemetry ingestion, not policy changes. Do not rely on these logs for
+high-stakes decisions. Current activity becomes stale after 2 minutes without
+a report. The current summary includes only the latest 500 completed sessions,
+not an all-time aggregate.
+
+Test with the target Mac before relying on monitoring. GitHub Actions tests
+Swift compilation and deterministic state-machine logic, but cannot prove
+NSWorkspace notifications fire in a real interactive login session.
