@@ -29,6 +29,7 @@ final class ForegroundMonitor {
     private var pending: [FocusEvent] = []
     private var idle = false
     private var uploading = false
+    private var suspended = false
 
     init(settings: MonitorSettings, queueURL: URL) throws {
         self.settings = settings
@@ -59,11 +60,20 @@ final class ForegroundMonitor {
     }
 
     @objc private func activated(_ notification: Notification) { recordFrontmost() }
-    @objc private func suspended(_ notification: Notification) { tracker.suspend(at: Date()); flush() }
-    @objc private func resumed(_ notification: Notification) { idle = false; recordFrontmost() }
+    @objc private func suspended(_ notification: Notification) {
+        suspended = true
+        tracker.suspend(at: Date())
+        flush()
+    }
+    @objc private func resumed(_ notification: Notification) {
+        suspended = false
+        idle = false
+        recordFrontmost()
+        flush()
+    }
 
     private func recordFrontmost() {
-        guard !idle, let app = NSWorkspace.shared.frontmostApplication,
+        guard !idle, !suspended, let app = NSWorkspace.shared.frontmostApplication,
               let id = app.bundleIdentifier, !id.isEmpty else { return }
         tracker.activate(bundleId: id, appName: app.localizedName ?? id, at: Date())
     }
@@ -81,6 +91,7 @@ final class ForegroundMonitor {
     }
 
     private func tick() {
+        if suspended { flush(); return }
         let now = Date()
         let isIdle = idleSeconds() >= 300
         if isIdle && !idle {
@@ -111,7 +122,7 @@ final class ForegroundMonitor {
         if pending.count > 10000 { pending.removeFirst(pending.count - 10000) }
         persist()
         guard let url = URL(string: settings.serverURL + "/api/device/activity") else { return }
-        let current = tracker.current.map { Current(bundleId: $0.bundleId, appName: $0.appName, since: $0.startedAt) }
+        let current = (!suspended && !idle ? tracker.current : nil).map { Current(bundleId: $0.bundleId, appName: $0.appName, since: $0.startedAt) }
         guard !uploading else { return }
         let payload = Upload(events: Array(pending.prefix(100)), current: current)
         let encoder = JSONEncoder()
