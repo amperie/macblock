@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "MacBlock Website Filter (experimental)",
+  "name": "Orbit Website Filter (experimental)",
   "version": "0.1.0",
   "description": "Blocks parent-configured sites in supported Chromium browsers.",
   "permissions": [
@@ -17,7 +17,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "MacBlock"
+    "default_title": "Orbit"
   },
   "storage": {
     "managed_schema": "managed_schema.json"
