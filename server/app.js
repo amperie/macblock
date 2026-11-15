@@ -7,7 +7,7 @@ async function api(path, body) {
   return data;
 }
 function render() {
-  $('blocked-domains').value = (state.policy.blockedDomains || []).join('\n');
+  if (!dirty) $('blocked-domains').value = (state.policy.blockedDomains || []).join('\n');
   const zone = $('enforcement-zone');
   zone.replaceChildren();
   for (const id of state.timeZones || ['America/Los_Angeles']) {
