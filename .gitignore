@@ -3,3 +3,5 @@ __pycache__/
 .env
 settings.json
 .build/
+monitor-settings.json
+activity-queue.json

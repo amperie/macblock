@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "serverURL": {
+      "type": "string"
+    },
+    "browserToken": {
+      "type": "string"
+    }
+  }
+}

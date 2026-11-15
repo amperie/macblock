@@ -106,3 +106,121 @@ swiftc -module-cache-path /tmp/macblock-swift-cache agent/main.swift -framework 
 Integration tests cover parent/device credential separation, policy revision conflicts, durable storage, status reporting, and rejection of invalid/system app rules. The agent also offers `/tmp/macblock-agent --check-policy /path/to/policy.json` for validating a policy without installing it.
 
 Before relying on it, test on the target Mac: enable each preset while the app runs; try reopening it; disable and reopen; reboot while offline; change Wi-Fi/VPN; and verify that a server outage preserves restrictions. Actual root-daemon process termination and browser UI interactions have not been verified by these automated tests. This first version does not provide a signed/notarized installer or signed auto-updates.
+
+## Foreground activity monitoring (experimental)
+
+This feature is separate from the root blocking daemon. It runs inside the logged-in
+user's graphical session, watches NSWorkspace foreground app changes, and uploads
+completed sessions and the current foreground app to the same VPS. The dashboard
+shows recent sessions and a current app only when a recent heartbeat exists.
+
+Set a **third**, distinct, 32+ character random token in the server's environment:
+
+```text
+MACBLOCK_ACTIVITY_TOKEN=<separate activity-only token>
+```
+
+Restart the VPS service after updating the environment. On the **target Mac**,
+while logged in as the account to monitor, create `agent/monitor-settings.json`:
+
+```json
+{"serverURL":"https://blocks.example.com","activityToken":"<activity-only token>"}
+```
+
+Then run `bash agent/install-monitor.sh` **as that user, not with sudo**.
+The monitor is installed in that user's Library and loaded as a per-user
+LaunchAgent. Do not commit either settings file. This monitor requires the
+user to be logged into a graphical session; it does not track the login screen.
+
+**Limitations:** Foreground time is not proof of active play. Idle detection uses
+IOHIDSystem and a 5-minute threshold, with approximate timestamps. Sleep,
+fast user switching, and login/logout produce session boundaries. Uploads are
+best-effort and queued locally; if the local user can modify the queue or
+monitor, the activity log is not tamper-proof. The activity token is scoped
+to telemetry ingestion, not policy changes. Do not rely on these logs for
+high-stakes decisions. Current activity becomes stale after 2 minutes without
+a report. The current summary includes only the latest 500 completed sessions,
+not an all-time aggregate.
+
+Test with the target Mac before relying on monitoring. GitHub Actions tests
+Swift compilation and deterministic state-machine logic, but cannot prove
+NSWorkspace notifications fire in a real interactive login session.
+
+## Server-authoritative time (foundation)
+
+The device policy response includes `serverTimeUTC` (an ISO-8601 UTC instant)
+and `enforcementTimeZone` (`America/Los_Angeles`). The root daemon anchors
+the received UTC instant to macOS monotonic system uptime. Changing the Mac's
+time zone or wall clock does not change that in-memory trusted-time estimate.
+On reboot or after a long unsynchronized interval, the anchor is invalidated.
+The server's time is transmitted over the existing authenticated HTTPS channel.
+
+**Important:** The current policy schema still only contains static app
+`blocked` switches. No bedtime schedules, daily resets, or usage budgets are
+enforced by this time anchor yet. Those features must use trusted time and
+fail closed when no trusted time is available. Do not use the local Mac clock
+as a fallback. The existing static blocked-app policy continues to operate
+offline without a time anchor.
+
+## Parent-selected enforcement timezone and nightly schedule
+
+The dashboard provides a dropdown of supported IANA time zones and a nightly
+restriction switch with start/end times (24-hour format). The default schedule
+is 21:00–07:00 and **disabled** until the parent enables it. When enabled,
+**all apps listed in the MacBlock policy** are blocked during that interval;
+the individual `blocked` switch remains an unconditional block.
+
+The timezone and schedule are persisted in the server policy, delivered to
+the root daemon, and evaluated with server-anchored UTC time using Apple's
+timezone database. Overnight intervals and daylight saving time are supported.
+The Mac's configured timezone is ignored. When a schedule is enabled but no
+valid server time is available, listed apps remain blocked until the daemon
+resynchronizes. Static blocks remain effective independently of the clock.
+
+This is scheduled blocking, **not a daily foreground usage quota**. Daily
+budgets require additional trusted accounting across reboot and offline periods.
+
+## Daily foreground allowance (experimental)
+
+The parent dashboard has a daily allowance switch, app selector, and minutes
+per day (1–1440). The default is 60 minutes for Roblox, **disabled** until
+enabled. The server accumulates foreground time from monitor heartbeats using
+server receipt timestamps, and stores usage by date in the parent-selected
+enforcement timezone. A Mac time-zone change cannot reset that date.
+
+The root daemon fetches the usage decision every 30 seconds when the quota
+is enabled. It blocks the selected app when the allowance is exhausted, or
+when the monitor, trusted clock, or server policy refresh becomes stale.
+The allowance is approximate: 15-second monitor heartbeat plus polling
+latency may allow some overrun. No quota is reset on daemon restart.
+
+**Security limitation:** The monitor runs as the child's user and can be
+stopped or impersonated by that user; this is not tamper-resistant enforcement.
+It must be moved behind privileged authenticated IPC before treating the
+activity measurement as trustworthy. A disabled monitor will cause the
+limited app to be blocked once the server reports stale monitoring.
+The agent and VPS must both be updated before enabling quotas.
+
+## Extended controls (experimental)
+
+Parent dashboard supports per-app schedules, per-app daily allowances,
+30-minute temporary overrides (applied when Save is pressed), a website
+domain list, and an alert history. The server validates per-app rules,
+enforces a maximum 24-hour override, and supplies per-app quota decisions
+to the root daemon. A temporary override takes precedence over static,
+scheduled, and quota restrictions for that app until expiry.
+
+**Browser limitation:** `browser/chrome/` contains a prototype Chromium
+declarativeNetRequest extension. It currently reads rules from Chrome's local
+extension storage and is NOT connected to the server's blockedDomains policy.
+It is NOT force-installed or protected against removal. Safari requires a
+properly signed Safari Web Extension / content blocker or managed network
+filter; neither is implemented. The website domain list is configuration
+storage only, not active enforcement.
+
+**Security limitation:** The foreground monitor still uses a user-owned
+LaunchAgent and bearer token, not protected root-owned authenticated IPC.
+A standard user may interfere with or spoof monitoring. Alert history is
+visible in the dashboard but there is no push/email notification delivery.
+The root daemon and monitor must be tested on an actual Mac before production
+use. No automatic deployment is performed.
