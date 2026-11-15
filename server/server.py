@@ -241,7 +241,7 @@ def validate_browser_heartbeat(payload):
     domain = payload['domain']
     if domain is not None:
         if not isinstance(domain, str) or len(domain) > 253 or not re.fullmatch(
-                r'[a-z0-9-]+(?:\\.[a-z0-9-]+)+', domain):
+                r'[a-z0-9-]+(?:\.[a-z0-9-]+)+', domain):
             raise ValueError('Invalid website domain')
     return client_id, domain
 
