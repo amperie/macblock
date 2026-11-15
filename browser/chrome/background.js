@@ -42,8 +42,37 @@ async function applyPolicy() {
   await api.declarativeNetRequest.updateDynamicRules({removeRuleIds:existing.map(r=>r.id),addRules:rules});
   await api.storage.local.set({lastRevision:policy.revision,lastSuccess:Date.now()});
 }
+async function reportWebsite() {
+  const cfg = await settings();
+  if (!cfg) return;
+  const base = new URL(cfg.serverURL);
+  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash)
+    throw Error('Invalid telemetry server URL');
+  let domain = null;
+  const idle = await api.idle.queryState(60);
+  if (idle === 'active') {
+    const window = await api.windows.getLastFocused();
+    if (window && window.focused) {
+      const tabs = await api.tabs.query({active:true,windowId:window.id});
+      const active = tabs[0];
+      if (active && active.url) {
+        try {
+          const page = new URL(active.url);
+          if (page.protocol === 'https:' || page.protocol === 'http:')
+            domain = normalize(page.hostname);
+        } catch (_) { /* Ignore browser-internal and malformed URLs. */ }
+      }
+    }
+  }
+  const response = await fetch(new URL('/api/browser/activity', base), {
+    method:'POST', headers:{Authorization:'Bearer '+cfg.browserToken,'Content-Type':'application/json'},
+    body:JSON.stringify({domain}), redirect:'error',cache:'no-store'
+  });
+  if (!response.ok) throw Error('Website activity upload failed: '+response.status);
+}
 api.runtime.onInstalled.addListener(()=>update().catch(console.error));
 api.runtime.onStartup.addListener(()=>{update().catch(console.error);});
-api.alarms.onAlarm.addListener(a=>a.name==='policy' ? update().catch(console.error) : Promise.resolve());
+api.alarms.onAlarm.addListener(a=>a.name==='policy' ? update().catch(console.error) : a.name==='website' ? reportWebsite().catch(console.error) : Promise.resolve());
 api.alarms.create('policy',{periodInMinutes:1});
+api.alarms.create('website',{periodInMinutes:1});
 update().catch(console.error);
