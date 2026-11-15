@@ -34,3 +34,33 @@ $('refresh').onclick = action(load);
 $('save').onclick = action(async () => { state.policy = await api('/api/admin/policy', state.policy); dirty = false; await load(); $('message').textContent = 'Saved. Waiting for the Mac to receive these settings.'; });
 $('add').onsubmit = action(async () => { const name = $('name').value.trim(), bundleId = $('bundle').value.trim(); if (!/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(bundleId) || /^(com\.apple\.|com\.macblock\.)/i.test(bundleId)) throw Error('Use a non-system app bundle identifier.'); if (state.policy.apps.some(a => a.bundleId === bundleId)) throw Error('That app is already listed.'); state.policy.apps.push({name, bundleId, blocked: false}); dirty = true; render(); $('add').reset(); $('message').textContent = 'App added. Save changes to send it to the Mac.'; });
 window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
+
+async function loadActivity() {
+  const data = await api('/api/admin/activity');
+  const last = data.lastSeen ? Date.parse(data.lastSeen) : 0;
+  const fresh = last && Date.now() - last < 120000;
+  $('activity-current').textContent = fresh && data.current
+    ? `Foreground: ${data.current.appName} (since ${new Date(data.current.since).toLocaleTimeString()})`
+    : data.lastSeen ? `No current activity confirmed · Last update ${new Date(data.lastSeen).toLocaleString()}` : 'No activity reported';
+  const container = $('activity-events');
+  container.replaceChildren();
+  const totals = new Map();
+  for (const e of data.events) {
+    const seconds = Math.max(0, (Date.parse(e.endedAt) - Date.parse(e.startedAt)) / 1000);
+    totals.set(e.appName, (totals.get(e.appName) || 0) + seconds);
+  }
+  const summary = document.createElement('p');
+  summary.textContent = [...totals.entries()].sort((a,b) => b[1] - a[1]).slice(0, 5)
+    .map(([name, seconds]) => `${name}: ${Math.round(seconds / 60)}m`).join(' · ') || 'No completed sessions';
+  container.append(summary);
+  for (const e of data.events.slice(0, 50)) {
+    const row = document.createElement('div');
+    row.className = 'app';
+    const seconds = Math.max(0, (Date.parse(e.endedAt) - Date.parse(e.startedAt)) / 1000);
+    row.textContent = `${e.appName} · ${new Date(e.startedAt).toLocaleString()} · ${Math.round(seconds / 60)} min`;
+    container.append(row);
+  }
+}
+$('activity-refresh').onclick = action(loadActivity);
+const originalLoad = load;
+load = async function () { await originalLoad(); await loadActivity(); };
