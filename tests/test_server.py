@@ -109,6 +109,13 @@ class ControlTests(unittest.TestCase):
         self.assertGreaterEqual(state['usedSeconds'], 60)
         self.assertTrue(state['monitoringFresh'])
         self.assertEqual(self.call('/api/admin/state', s.ADMIN)[1]['quotaState']['day'], state['day'])
+        tomorrow = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=2)
+        reset = s.quota_state(s.policy(), now=tomorrow)
+        self.assertFalse(reset['exceeded'])
+        self.assertEqual(reset['usedSeconds'], 0)
+        bad_policy = dict(policy, revision=2,
+                          quota=dict(enabled=True, bundleId='com.example.missing', minutes=60))
+        self.assertEqual(self.call('/api/admin/policy', s.ADMIN, bad_policy)[0], 400)
 
     def test_activity_auth_validation_and_deduplication(self):
         now = datetime.datetime.now(datetime.timezone.utc)
