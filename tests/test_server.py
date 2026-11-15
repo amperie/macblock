@@ -101,7 +101,8 @@ class ControlTests(unittest.TestCase):
         payload = dict(events=[], current=current)
         self.assertEqual(self.call('/api/device/activity', s.ACTIVITY, payload)[0], 200)
         with sqlite3.connect(s.DB) as conn:
-            conn.execute("UPDATE activity_current SET seen=datetime('now', '-70 seconds') WHERE id=1")
+            old_seen = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=70)).isoformat()
+            conn.execute("UPDATE activity_current SET seen=? WHERE id=1", (old_seen,))
         self.assertEqual(self.call('/api/device/activity', s.ACTIVITY, payload)[0], 200)
         state = self.call('/api/device/policy', s.DEVICE)[1]['quotaState']
         self.assertTrue(state['exceeded'])
