@@ -16,3 +16,5 @@ install -m 644 -o root -g wheel com.macblock.agent.plist /Library/LaunchDaemons/
 launchctl bootstrap system /Library/LaunchDaemons/com.macblock.agent.plist
 rm "$build_dir/macblock-agent"
 echo 'Installed. Check the website for a successful device connection.'
+echo 'For browser protection, run browser/install-browsers.sh with the published Chrome extension ID/update URL and optional signed Safari package.'
+echo 'The Chrome configuration profile requires approval; Safari extension enablement requires user or management approval.'
