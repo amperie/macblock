@@ -16,6 +16,7 @@ DB = os.environ.get('MACBLOCK_DB', 'macblock.sqlite3')
 ADMIN = os.environ.get('MACBLOCK_ADMIN_TOKEN', '')
 DEVICE = os.environ.get('MACBLOCK_DEVICE_TOKEN', '')
 ACTIVITY = os.environ.get('MACBLOCK_ACTIVITY_TOKEN', '')
+BROWSER = os.environ.get('MACBLOCK_BROWSER_TOKEN', '')
 TIME_ZONES = ['America/Los_Angeles', 'America/Denver', 'America/Chicago', 'America/New_York', 'America/Phoenix', 'Pacific/Honolulu', 'Europe/London', 'Europe/Paris', 'Asia/Tokyo', 'Australia/Sydney', 'UTC']
 PRESETS = [dict(name='Roblox', bundleId='com.roblox.RobloxPlayer', blocked=False),
            dict(name='Opera', bundleId='com.operasoftware.Opera', blocked=False)]
@@ -270,6 +271,10 @@ class Handler(BaseHTTPRequestHandler):
                     appQuotaStates=app_quota_states(config),
                     serverTimeUTC=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     quotaState=quota_state(config)))
+        elif self.path == '/api/browser/domains':
+            if self.authorized(BROWSER):
+                config = policy()
+                self.reply(200, dict(revision=config['revision'], blockedDomains=config.get('blockedDomains', [])))
         elif self.path == '/api/admin/alerts':
             if self.authorized(ADMIN):
                 with sqlite3.connect(DB) as conn:
@@ -344,7 +349,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    if min(len(ADMIN), len(DEVICE), len(ACTIVITY)) < 32 or len({ADMIN, DEVICE, ACTIVITY}) != 3:
-        raise SystemExit('Set distinct MACBLOCK_ADMIN_TOKEN, MACBLOCK_DEVICE_TOKEN and MACBLOCK_ACTIVITY_TOKEN (at least 32 characters each)')
+    if min(len(ADMIN), len(DEVICE), len(ACTIVITY), len(BROWSER)) < 32 or len({ADMIN, DEVICE, ACTIVITY, BROWSER}) != 4:
+        raise SystemExit('Set distinct MACBLOCK_ADMIN_TOKEN, MACBLOCK_DEVICE_TOKEN, MACBLOCK_ACTIVITY_TOKEN and MACBLOCK_BROWSER_TOKEN (at least 32 characters each)')
     init_db()
     ThreadingHTTPServer((os.environ.get('MACBLOCK_BIND', '127.0.0.1'), int(os.environ.get('PORT', '8080'))), Handler).serve_forever()
