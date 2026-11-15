@@ -194,7 +194,7 @@ def prune_history(conn, now=None):
     cutoff = (now - datetime.timedelta(days=RETENTION_DAYS)).date().isoformat()
     conn.execute('DELETE FROM quota_usage WHERE day < ?', (cutoff,))
     conn.execute('DELETE FROM website_usage WHERE day < ?', (cutoff,))
-    conn.execute('DELETE FROM activity WHERE end < ?', (now - datetime.timedelta(days=RETENTION_DAYS)).isoformat(),)
+    conn.execute('DELETE FROM activity WHERE end < ?', ((now - datetime.timedelta(days=RETENTION_DAYS)).isoformat(),))
     conn.execute('DELETE FROM alerts WHERE created < ?', ((now - datetime.timedelta(days=RETENTION_DAYS)).isoformat(),))
 
 
