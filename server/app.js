@@ -169,3 +169,41 @@ async function loadSecurityHealth() {
     ' · Browser filtering: ' + (result.browserProtectionVerified ? 'verified' : 'NOT VERIFIED');
 }
 $('security-refresh').onclick = action(loadSecurityHealth);
+
+async function loadUsage() {
+  const data = await api('/api/admin/usage');
+  $('usage-summary').textContent = 'Retaining ' + data.retentionDays +
+    ' days · Time zone: ' + data.timeZone +
+    ' · Website usage is sampled foreground-tab time, not exact browsing duration.';
+  const root = $('usage-report');
+  root.replaceChildren();
+  const format = seconds => (seconds / 60).toFixed(1) + ' min';
+  for (const [kind, items] of [['Applications', data.apps], ['Websites', data.websites]]) {
+    const heading = document.createElement('h3'); heading.textContent = kind;
+    root.append(heading);
+    if (!items.length) {
+      const empty = document.createElement('p');
+      empty.textContent = 'No usage recorded yet'; root.append(empty);
+    }
+    for (const item of items) {
+      const section = document.createElement('details');
+      const title = document.createElement('summary');
+      title.textContent = item.id + ' · ' +
+        format(Object.values(item.days).reduce((a,b)=>a+b,0)) + ' total';
+      section.append(title);
+      for (const [label, values] of [['Daily', item.days], ['Weekly (Monday start)', item.weeks]]) {
+        const h = document.createElement('strong'); h.textContent = label;
+        section.append(h);
+        const list = document.createElement('ul');
+        for (const [date, seconds] of Object.entries(values).sort((a,b)=>b[0].localeCompare(a[0]))) {
+          const li = document.createElement('li');
+          li.textContent = date + ': ' + format(seconds);
+          list.append(li);
+        }
+        section.append(list);
+      }
+      root.append(section);
+    }
+  }
+}
+$('usage-refresh').onclick = action(loadUsage);
