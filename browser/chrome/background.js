@@ -12,7 +12,13 @@ async function settings() {
   const managed = await api.storage.managed.get(['serverURL', 'browserToken']).catch(() => ({}));
   return managed.serverURL && managed.browserToken ? managed : null;
 }
-async function update() {
+let pending = Promise.resolve();
+function update() {
+  const task = pending.then(applyPolicy);
+  pending = task.catch(() => {});
+  return task;
+}
+async function applyPolicy() {
   const cfg = await settings();
   if (!cfg) throw Error('MacBlock managed configuration missing');
   const base = new URL(cfg.serverURL);
