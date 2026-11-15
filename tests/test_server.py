@@ -40,6 +40,8 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(self.call('/api/device/policy', s.ADMIN)[0], 401)
         self.assertEqual(self.call('/api/browser/domains', s.DEVICE)[0], 401)
         self.assertEqual(self.call('/api/browser/domains', s.BROWSER)[1]['blockedDomains'], [])
+        self.assertEqual(self.call('/api/admin/state', s.BROWSER)[0], 401)
+        self.assertEqual(self.call('/api/admin/policy', s.BROWSER, dict(apps=[], revision=1))[0], 401)
         self.assertEqual(self.call('/api/device/status', '', {})[0], 401)
 
     def test_policy_persistence_conflict_and_status(self):
