@@ -34,7 +34,7 @@ jobs:
           fi
       - name: Foreground tracker state-machine tests
         run: |
-          swiftc -D FOCUS_TRACKER_SELF_TEST agent/FocusTracker.swift -o "$RUNNER_TEMP/focus-tracker-tests"
+          swiftc agent/FocusTracker.swift tests/FocusTrackerTests.swift -o "$RUNNER_TEMP/focus-tracker-tests"
           "$RUNNER_TEMP/focus-tracker-tests"
       - name: Build foreground GUI monitor
         run: |
