@@ -2,6 +2,32 @@ import Foundation
 import Security
 import Darwin
 
+struct Schedule: Codable {
+    let enabled: Bool
+    let start: String
+    let end: String
+    func validate() throws {
+        func minutes(_ value: String) -> Int? {
+            let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+            guard parts.count == 2, parts[0].count == 2, parts[1].count == 2,
+                  let hour = Int(parts[0]), let minute = Int(parts[1]),
+                  (0..<24).contains(hour), (0..<60).contains(minute) else { return nil }
+            return hour * 60 + minute
+        }
+        guard let a = minutes(start), let b = minutes(end), a != b else { throw Failure.invalidPolicy }
+    }
+    func isBlocked(at date: Date, zone: TimeZone) -> Bool {
+        guard enabled else { return false }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        let minute = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        let startParts = start.split(separator: ":").compactMap { Int($0) }
+        let endParts = end.split(separator: ":").compactMap { Int($0) }
+        let a = startParts[0] * 60 + startParts[1], b = endParts[0] * 60 + endParts[1]
+        return a < b ? (minute >= a && minute < b) : (minute >= a || minute < b)
+    }
+}
 struct AppRule: Codable { let name: String; let bundleId: String; let blocked: Bool }
 struct Policy: Codable {
     let schemaVersion: Int
@@ -9,8 +35,11 @@ struct Policy: Codable {
     let apps: [AppRule]
     let serverTimeUTC: String?
     let enforcementTimeZone: String?
+    let schedule: Schedule?
     func validate() throws {
         guard schemaVersion == 1, revision > 0, apps.count <= 100 else { throw Failure.invalidPolicy }
+        if let schedule = schedule { try schedule.validate() }
+        if let zone = enforcementTimeZone, TimeZone(identifier: zone) == nil { throw Failure.invalidPolicy }
         var seen = Set<String>()
         for app in apps {
             guard !app.name.isEmpty, app.name.count <= 80,
@@ -71,7 +100,19 @@ func request(_ settings: Settings, _ path: String, body: Data? = nil) throws -> 
 
 func enforce() {
     guard let policy = active else { return }
-    let blocked = Set(policy.apps.filter { $0.blocked }.map { $0.bundleId })
+    let scheduleBlocked: Bool
+    if let schedule = policy.schedule, schedule.enabled {
+        if let now = trustedNow(), let identifier = policy.enforcementTimeZone,
+           let zone = TimeZone(identifier: identifier) {
+            scheduleBlocked = schedule.isBlocked(at: now, zone: zone)
+        } else {
+            // Fail closed for scheduled apps if time cannot be verified.
+            scheduleBlocked = true
+        }
+    } else {
+        scheduleBlocked = false
+    }
+    let blocked = Set(policy.apps.filter { $0.blocked || scheduleBlocked }.map { $0.bundleId })
     guard !blocked.isEmpty else { return }
     let task = Process(); task.executableURL = URL(fileURLWithPath: "/bin/ps")
     task.arguments = ["-axo", "pid="]
@@ -129,7 +170,7 @@ DispatchQueue.global(qos: .utility).async {
                 let roundTrip = receivedUptime - requestStartedUptime
                 if roundTrip >= 0, roundTrip <= 25,
                    let timestamp = next.serverTimeUTC,
-                   next.enforcementTimeZone == "America/Los_Angeles",
+                   next.enforcementTimeZone != nil && TimeZone(identifier: next.enforcementTimeZone!) != nil,
                    let parsed = trustedFormatter.date(from: timestamp),
                    let old = trustedNow(), parsed >= old.addingTimeInterval(-2) {
                     trustedTime = (max(parsed, old), receivedUptime)
