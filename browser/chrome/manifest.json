@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "MacBlock Website Filter (experimental)",
+  "version": "0.1.0",
+  "description": "Blocks parent-configured sites in supported Chromium browsers.",
+  "permissions": ["declarativeNetRequest", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {"service_worker": "background.js"},
+  "action": {"default_title": "MacBlock"}
+}
