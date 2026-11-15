@@ -7,6 +7,8 @@ struct Policy: Codable {
     let schemaVersion: Int
     let revision: Int
     let apps: [AppRule]
+    let serverTimeUTC: String?
+    let enforcementTimeZone: String?
     func validate() throws {
         guard schemaVersion == 1, revision > 0, apps.count <= 100 else { throw Failure.invalidPolicy }
         var seen = Set<String>()
@@ -28,6 +30,17 @@ let root = URL(fileURLWithPath: "/Library/Application Support/MacBlock", isDirec
 let cache = root.appendingPathComponent("policy.json")
 var lastError = ""
 var active: Policy?
+// Server UTC anchor is advanced using monotonic uptime, not the user's clock.
+// It is intentionally memory-only: reboot/offline time is not trustworthy.
+var trustedTime: (utc: Date, uptime: TimeInterval)?
+let trustedFormatter = ISO8601DateFormatter()
+trustedFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+func trustedNow() -> Date? {
+    guard let anchor = trustedTime else { return nil }
+    let elapsed = ProcessInfo.processInfo.systemUptime - anchor.uptime
+    guard elapsed >= 0, elapsed < 86400 else { return nil }
+    return anchor.utc.addingTimeInterval(elapsed)
+}
 
 func request(_ settings: Settings, _ path: String, body: Data? = nil) throws -> Data {
     guard let url = URL(string: settings.serverURL + path) else { throw Failure.invalidSettings }
@@ -106,8 +119,17 @@ DispatchQueue.global(qos: .utility).async {
         // Fetch separately; publish under the lock, keeping enforcement responsive.
         do {
             let data = try request(settings, "/api/device/policy")
+            let receivedUptime = ProcessInfo.processInfo.systemUptime
             let next = try decoder.decode(Policy.self, from: data); try next.validate()
             policyLock.lock()
+            // A cached policy must never be allowed to supply a trusted clock.
+            if let timestamp = next.serverTimeUTC,
+               next.enforcementTimeZone == "America/Los_Angeles",
+               let parsed = trustedFormatter.date(from: timestamp) {
+                trustedTime = (parsed, receivedUptime)
+            } else {
+                trustedTime = nil
+            }
             if next.revision >= (active?.revision ?? 0) {
                 do { try data.write(to: cache, options: .atomic); try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cache.path); active = next; lastError = "" }
                 catch { lastError = "Cannot persist policy" }
@@ -115,7 +137,7 @@ DispatchQueue.global(qos: .utility).async {
             policyLock.unlock()
         } catch { policyLock.lock(); lastError = "Policy sync failed; keeping cached rules"; policyLock.unlock() }
         policyLock.lock()
-        let report: [String: Any] = ["revision": active?.revision ?? 0, "agentVersion": "0.1.0", "lastError": String(lastError.prefix(500))]
+        let report: [String: Any] = ["revision": active?.revision ?? 0, "agentVersion": "0.2.0", "lastError": String(lastError.prefix(500))]
         policyLock.unlock()
         do { _ = try request(settings, "/api/device/status", body: JSONSerialization.data(withJSONObject: report)) } catch { }
         Thread.sleep(forTimeInterval: 120)
