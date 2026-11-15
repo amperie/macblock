@@ -116,16 +116,21 @@ final class ForegroundMonitor {
     }
 }
 
-let home = FileManager.default.homeDirectoryForCurrentUser
-let directory = home.appendingPathComponent("Library/Application Support/MacBlock", isDirectory: true)
-try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-let settingsURL = directory.appendingPathComponent("monitor-settings.json")
-do {
-    let settings = try JSONDecoder().decode(MonitorSettings.self, from: Data(contentsOf: settingsURL))
-    let monitor = try ForegroundMonitor(settings: settings, queueURL: directory.appendingPathComponent("activity-queue.json"))
-    monitor.start()
-    RunLoop.main.run()
-} catch {
-    fputs("MacBlock monitor setup failed: \(error)\n", stderr)
-    exit(1)
+@main
+struct MonitorMain {
+    static func main() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let directory = home.appendingPathComponent("Library/Application Support/MacBlock", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let settingsURL = directory.appendingPathComponent("monitor-settings.json")
+            let settings = try JSONDecoder().decode(MonitorSettings.self, from: Data(contentsOf: settingsURL))
+            let monitor = try ForegroundMonitor(settings: settings, queueURL: directory.appendingPathComponent("activity-queue.json"))
+            monitor.start()
+            RunLoop.main.run()
+        } catch {
+            fputs("MacBlock monitor setup failed: \\(error)\\n", stderr)
+            exit(1)
+        }
+    }
 }
