@@ -117,6 +117,16 @@ class ControlTests(unittest.TestCase):
                           quota=dict(enabled=True, bundleId='com.example.missing', minutes=60))
         self.assertEqual(self.call('/api/admin/policy', s.ADMIN, bad_policy)[0], 400)
 
+    def test_blocked_domain_policy(self):
+        _, p = self.call('/api/device/policy', s.DEVICE)
+        p['blockedDomains'] = ['instagram.com', 'tiktok.com']
+        code, saved = self.call('/api/admin/policy', s.ADMIN, p)
+        self.assertEqual(code, 200)
+        self.assertEqual(saved['blockedDomains'], ['instagram.com', 'tiktok.com'])
+        for domains in [['example'], ['a.com', 'a.com'], ['https://example.com'], ['*.example.com']]:
+            invalid = dict(saved, blockedDomains=domains)
+            self.assertEqual(self.call('/api/admin/policy', s.ADMIN, invalid)[0], 400)
+
     def test_per_app_rules_and_temporary_override(self):
         _, p = self.call('/api/device/policy', s.DEVICE)
         p['appRules'] = {'com.roblox.RobloxPlayer': {
