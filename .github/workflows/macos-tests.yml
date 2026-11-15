@@ -36,6 +36,22 @@ jobs:
             echo "Invalid policy was accepted" >&2
             exit 1
           fi
+      - name: Reject inconsistent per-app policy
+        run: |
+          cat > "$RUNNER_TEMP/invalid-derived.json" <<'JSON'
+          {"schemaVersion":1,"revision":2,"apps":[{"name":"Roblox","bundleId":"com.roblox.RobloxPlayer","blocked":false}],"appSchedules":{"com.example.missing":{"enabled":true,"start":"20:00","end":"08:00"}}}
+          JSON
+          if "$RUNNER_TEMP/macblock-agent" --check-policy "$RUNNER_TEMP/invalid-derived.json"; then
+            echo "Agent accepted unlisted app schedule" >&2
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/invalid-quota.json" <<'JSON'
+          {"schemaVersion":1,"revision":2,"apps":[{"name":"Roblox","bundleId":"com.roblox.RobloxPlayer","blocked":false}],"appQuotaStates":{"com.roblox.RobloxPlayer":{"enabled":true,"bundleId":"com.example.other","usedSeconds":0,"limitSeconds":3600,"exceeded":false,"monitoringFresh":true,"day":"2026-11-15"}}}
+          JSON
+          if "$RUNNER_TEMP/macblock-agent" --check-policy "$RUNNER_TEMP/invalid-quota.json"; then
+            echo "Agent accepted mismatched quota" >&2
+            exit 1
+          fi
       - name: Foreground tracker state-machine tests
         run: |
           swiftc agent/FocusTracker.swift tests/FocusTrackerTests.swift -o "$RUNNER_TEMP/focus-tracker-tests"
