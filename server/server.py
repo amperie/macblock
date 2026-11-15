@@ -63,6 +63,42 @@ def record_heartbeat(conn, current, config, now):
                              (day, current['bundleId'], elapsed))
 
 
+def validate_app_rules(rules, apps):
+    if not isinstance(rules, dict) or len(rules) > 100:
+        raise ValueError('Invalid per-app rules')
+    allowed = {a['bundleId'] for a in apps}
+    for bid, rule in rules.items():
+        if bid not in allowed or not isinstance(rule, dict) or set(rule) != {'schedule', 'minutes'}:
+            raise ValueError('Invalid per-app rule')
+        validate_schedule(rule['schedule'])
+        if rule['minutes'] is not None and (type(rule['minutes']) is not int or not 1 <= rule['minutes'] <= 1440):
+            raise ValueError('Invalid per-app minutes')
+    return rules
+
+
+def validate_overrides(overrides, apps):
+    if not isinstance(overrides, dict) or len(overrides) > 100:
+        raise ValueError('Invalid overrides')
+    allowed = {a['bundleId'] for a in apps}
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for bid, until in overrides.items():
+        if bid not in allowed or not now < parse_time(until) <= now + datetime.timedelta(hours=24):
+            raise ValueError('Invalid override')
+    return overrides
+
+
+def app_quota_states(config, now=None):
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    rules = config.get('appRules', {})
+    result = {}
+    for bid, rule in rules.items():
+        if rule.get('minutes') is None:
+            continue
+        copy = dict(config, quota=dict(enabled=True, bundleId=bid, minutes=rule['minutes']))
+        result[bid] = quota_state(copy, now)
+    return result
+
+
 def validate_schedule(schedule):
     if not isinstance(schedule, dict) or set(schedule) != {'enabled', 'start', 'end'}:
         raise ValueError('Invalid schedule')
@@ -113,6 +149,8 @@ def init_db():
             existing.setdefault('schedule', dict(enabled=False, start='21:00', end='07:00'))
             conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(existing),))
         existing.setdefault('quota', dict(enabled=False, bundleId='com.roblox.RobloxPlayer', minutes=60))
+        existing.setdefault('appRules', {})
+        existing.setdefault('overrides', {})
         conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(existing),))
         conn.execute('CREATE TABLE IF NOT EXISTS quota_usage (day TEXT NOT NULL, bundle_id TEXT NOT NULL, seconds REAL NOT NULL, PRIMARY KEY(day,bundle_id))')
         conn.execute('CREATE TABLE IF NOT EXISTS status (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
@@ -210,7 +248,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/device/policy':
             if self.authorized(DEVICE):
                 config = policy()
-                self.reply(200, dict(config, serverTimeUTC=datetime.datetime.now(datetime.timezone.utc).isoformat(), quotaState=quota_state(config)))
+                rules = config.get('appRules', {})
+                self.reply(200, dict(config,
+                    appSchedules={bid: rule['schedule'] for bid, rule in rules.items()},
+                    appQuotaStates=app_quota_states(config),
+                    serverTimeUTC=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    quotaState=quota_state(config)))
         elif self.path == '/api/admin/activity':
             if self.authorized(ADMIN):
                 with sqlite3.connect(DB) as conn:
@@ -224,7 +267,7 @@ class Handler(BaseHTTPRequestHandler):
                 with sqlite3.connect(DB) as conn:
                     row = conn.execute('SELECT payload, seen FROM status WHERE id=1').fetchone()
                 config = policy()
-                self.reply(200, dict(timeZones=TIME_ZONES, policy=config, quotaState=quota_state(config), device=dict(report=json.loads(row[0]), lastSeen=row[1]) if row else None))
+                self.reply(200, dict(timeZones=TIME_ZONES, policy=config, quotaState=quota_state(config), appQuotaStates=app_quota_states(config), device=dict(report=json.loads(row[0]), lastSeen=row[1]) if row else None))
         else:
             self.reply(404, {'error': 'Not found'})
 
@@ -259,7 +302,9 @@ class Handler(BaseHTTPRequestHandler):
                     quota = validate_quota(data.get('quota', current.get('quota', dict(enabled=False, bundleId='com.roblox.RobloxPlayer', minutes=60))))
                     if quota['enabled'] and quota['bundleId'] not in {app['bundleId'] for app in apps}:
                         raise ValueError('Quota app must be in the policy')
-                    current.update(apps=apps, enforcementTimeZone=tz, schedule=schedule, quota=quota, revision=current['revision'] + 1)
+                    rules = validate_app_rules(data.get('appRules', current.get('appRules', {})), apps)
+                    overrides = validate_overrides(data.get('overrides', current.get('overrides', {})), apps)
+                    current.update(apps=apps, enforcementTimeZone=tz, schedule=schedule, quota=quota, appRules=rules, overrides=overrides, revision=current['revision'] + 1)
                     conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(current),))
                 self.reply(200, current)
             else:
