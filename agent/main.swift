@@ -52,9 +52,13 @@ struct Policy: Codable {
     let schedule: Schedule?
     let quota: Quota?
     let quotaState: QuotaState?
+    let appSchedules: [String: Schedule]?
+    let appQuotaStates: [String: QuotaState]?
+    let overrides: [String: String]?
     func validate() throws {
         guard schemaVersion == 1, revision > 0, apps.count <= 100 else { throw Failure.invalidPolicy }
         if let schedule = schedule { try schedule.validate() }
+        for (_, rule) in appSchedules ?? [:] { try rule.validate() }
         if let quota = quota, quota.enabled {
             guard quota.minutes >= 1, quota.minutes <= 1440,
                   apps.contains(where: { $0.bundleId == quota.bundleId }) else { throw Failure.invalidPolicy }
@@ -144,8 +148,21 @@ func enforce() {
             state == nil || state!.bundleId != quota.bundleId ||
             !state!.monitoringFresh || state!.exceeded
     } else { quotaBlocked = false }
-    let blocked = Set(policy.apps.filter {
-        $0.blocked || scheduleBlocked || (quotaBlocked && $0.bundleId == policy.quota?.bundleId)
+    let now = trustedNow()
+    let zone = policy.enforcementTimeZone.flatMap(TimeZone.init(identifier:))
+    let blocked = Set(policy.apps.filter { app in
+        if let until = policy.overrides?[app.bundleId],
+           let expiration = trustedFormatter.date(from: until),
+           let now = now, now < expiration { return false }
+        let perAppSchedule = policy.appSchedules?[app.bundleId]
+        let appScheduled: Bool
+        if let rule = perAppSchedule, rule.enabled {
+            appScheduled = (now != nil && zone != nil) ? rule.isBlocked(at: now!, zone: zone!) : true
+        } else { appScheduled = scheduleBlocked }
+        let appQuota = policy.appQuotaStates?[app.bundleId]
+        let appQuotaBlocked = appQuota.map { $0.exceeded || !$0.monitoringFresh || now == nil } ?? false
+        return app.blocked || appScheduled || appQuotaBlocked ||
+            (quotaBlocked && app.bundleId == policy.quota?.bundleId)
     }.map { $0.bundleId })
     guard !blocked.isEmpty else { return }
     let task = Process(); task.executableURL = URL(fileURLWithPath: "/bin/ps")
@@ -222,7 +239,7 @@ DispatchQueue.global(qos: .utility).async {
                 } else if roundTrip >= 0, roundTrip <= 25,
                           (trustedTime == nil || trustedNow() == nil),
                           let timestamp = next.serverTimeUTC,
-                          next.enforcementTimeZone == "America/Los_Angeles",
+                          next.enforcementTimeZone != nil && TimeZone(identifier: next.enforcementTimeZone!) != nil,
                           let parsed = trustedFormatter.date(from: timestamp) {
                     trustedTime = (parsed, receivedUptime)
                 }
