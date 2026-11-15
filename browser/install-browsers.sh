@@ -6,7 +6,7 @@ usage() {
   echo 'Usage: sudo bash browser/install-browsers.sh --chrome-id ID --chrome-update-url HTTPS_URL --server-url HTTPS_URL --browser-token TOKEN [--safari-pkg SIGNED.pkg] [--output DIR]' >&2
   exit 2
 }
-chrome_id='' chrome_update='' server_url='' token='' safari_pkg='' output='/Library/Application Support/MacBlock/Browser'
+chrome_id='' chrome_update='' server_url='' token='' safari_pkg='' output='/Library/Application Support/Orbit/Browser'
 while (($#)); do
   case "$1" in
     --chrome-id) chrome_id="${2:-}"; shift 2;;
@@ -22,12 +22,12 @@ done
 [[ "$chrome_id" =~ ^[a-p]{32}$ ]] || { echo 'Supply the actual 32-letter Chrome extension ID' >&2; exit 2; }
 [[ "$chrome_update" == https://* && "$server_url" == https://* ]] || { echo 'HTTPS URLs required' >&2; exit 2; }
 [[ ${#token} -ge 32 ]] || { echo 'Use a distinct browser token of at least 32 characters' >&2; exit 2; }
-[[ "$output" == "/Library/Application Support/MacBlock/Browser" ]] || { echo 'Custom output paths are not supported for root-owned secrets' >&2; exit 2; }
+[[ "$output" == "/Library/Application Support/Orbit/Browser" ]] || { echo 'Custom output paths are not supported for root-owned secrets' >&2; exit 2; }
 [[ ! -L "$output" ]] || { echo 'Refusing symlinked output directory' >&2; exit 1; }
 install -d -m 700 -o root -g wheel "$output"
-export MACBLOCK_CHROME_ID="$chrome_id" MACBLOCK_CHROME_UPDATE="$chrome_update" MACBLOCK_BROWSER_URL="$server_url" MACBLOCK_BROWSER_TOKEN="$token" MACBLOCK_PROFILE_OUTPUT="$output/MacBlock-Chrome.mobileconfig"
+export ORBIT_CHROME_ID="$chrome_id" ORBIT_CHROME_UPDATE="$chrome_update" ORBIT_BROWSER_URL="$server_url" ORBIT_BROWSER_TOKEN="$token" ORBIT_PROFILE_OUTPUT="$output/Orbit-Chrome.mobileconfig"
 /usr/bin/python3 "$(dirname "$0")/generate-profile.py"
-chmod 600 "$output/MacBlock-Chrome.mobileconfig"
+chmod 600 "$output/Orbit-Chrome.mobileconfig"
 if [[ -n "$safari_pkg" ]]; then
   [[ -f "$safari_pkg" && ! -L "$safari_pkg" ]] || { echo 'Signed Safari package not found' >&2; exit 1; }
   signature=$(/usr/sbin/pkgutil --check-signature "$safari_pkg")
@@ -38,7 +38,7 @@ if [[ -n "$safari_pkg" ]]; then
   fi
   /usr/sbin/installer -pkg "$safari_pkg" -target /
 fi
-echo "Chrome configuration profile generated at: $output/MacBlock-Chrome.mobileconfig"
+echo "Chrome configuration profile generated at: $output/Orbit-Chrome.mobileconfig"
 echo 'Install and approve this profile using device management or macOS System Settings.'
 echo 'Verify force installation in chrome://policy and chrome://extensions.'
 echo 'Safari extension requires approval in Safari Settings > Extensions.'

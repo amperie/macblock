@@ -20,7 +20,7 @@ function update() {
 }
 async function applyPolicy() {
   const cfg = await settings();
-  if (!cfg) throw Error('MacBlock managed configuration missing');
+  if (!cfg) throw Error('Orbit managed configuration missing');
   const base = new URL(cfg.serverURL);
   if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) throw Error('Invalid server URL');
   const url = new URL('/api/browser/domains', base);

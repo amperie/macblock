@@ -7,11 +7,11 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
-extension_id = os.environ['MACBLOCK_CHROME_ID']
-update_url = os.environ['MACBLOCK_CHROME_UPDATE']
-server_url = os.environ['MACBLOCK_BROWSER_URL']
-token = os.environ['MACBLOCK_BROWSER_TOKEN']
-destination = Path(os.environ['MACBLOCK_PROFILE_OUTPUT'])
+extension_id = os.environ['ORBIT_CHROME_ID']
+update_url = os.environ['ORBIT_CHROME_UPDATE']
+server_url = os.environ['ORBIT_BROWSER_URL']
+token = os.environ['ORBIT_BROWSER_TOKEN']
+destination = Path(os.environ['ORBIT_PROFILE_OUTPUT'])
 
 if not re.fullmatch(r'[a-p]{32}', extension_id):
     raise ValueError('Invalid Chrome extension ID')
@@ -34,15 +34,15 @@ settings = {
 profile = {
     'PayloadType': 'Configuration',
     'PayloadVersion': 1,
-    'PayloadIdentifier': 'com.macblock.chrome.configuration',
+    'PayloadIdentifier': 'com.side-forge.orbit.chrome.configuration',
     'PayloadUUID': str(uuid.uuid4()).upper(),
-    'PayloadDisplayName': 'MacBlock Chrome Browser Policy',
-    'PayloadOrganization': 'MacBlock',
+    'PayloadDisplayName': 'Orbit Chrome Browser Policy',
+    'PayloadOrganization': 'Orbit',
     'PayloadRemovalDisallowed': False,
     'PayloadContent': [{
         'PayloadType': 'com.google.Chrome',
         'PayloadVersion': 1,
-        'PayloadIdentifier': 'com.macblock.chrome.policy',
+        'PayloadIdentifier': 'com.side-forge.orbit.chrome.policy',
         'PayloadUUID': str(uuid.uuid4()).upper(),
         'PayloadDisplayName': 'Chrome managed extension settings',
         'ExtensionSettings': settings,
@@ -51,7 +51,7 @@ profile = {
 destination.parent.mkdir(parents=True, exist_ok=True)
 if destination.is_symlink():
     raise ValueError('Refusing symlinked profile destination')
-fd, temporary = tempfile.mkstemp(prefix='.macblock-', suffix='.mobileconfig', dir=destination.parent)
+fd, temporary = tempfile.mkstemp(prefix='.orbit-', suffix='.mobileconfig', dir=destination.parent)
 try:
     os.fchmod(fd, 0o600)
     with os.fdopen(fd, 'wb') as file:

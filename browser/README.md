@@ -3,7 +3,7 @@
 ## Chrome
 The shared WebExtension is in `browser/chrome`. It requests a read-only
 browser token, not the parent or daemon token. Configure the server with a
-**fourth** independent environment variable `MACBLOCK_BROWSER_TOKEN`
+**fourth** independent environment variable `ORBIT_BROWSER_TOKEN`
 (32+ characters). The extension polls `/api/browser/domains` every minute,
 and keeps the previous rules if a fetch fails.
 
@@ -48,13 +48,13 @@ fallback, not a hosts-file rule.
 ## Installer usage (on target Mac)
 
 After publishing the Chrome extension and obtaining its real extension ID and
-update URL, configure `MACBLOCK_BROWSER_TOKEN` on the VPS and run:
+update URL, configure `ORBIT_BROWSER_TOKEN` on the VPS and run:
 
 ```bash
 sudo bash browser/install-browsers.sh \
   --chrome-id ACTUAL_32_CHARACTER_EXTENSION_ID \
   --chrome-update-url https://your-extension-update-server/update.xml \
-  --server-url https://your-macblock-server \
+  --server-url https://your-orbit-server \
   --browser-token YOUR_DISTINCT_READ_ONLY_BROWSER_TOKEN \
   --safari-pkg /path/to/your-signed-safari-containing-app.pkg
 ```
@@ -88,4 +88,4 @@ API compatibility is not yet validated. The extension requires `tabs` and
 `idle` permissions, which must be reviewed when installing/updating it.
 Website usage requires the extension to be enabled; the Mac daemon cannot
 supply per-site activity on its own. Default retention is 90 calendar days,
-configurable with `MACBLOCK_RETENTION_DAYS`.
+configurable with `ORBIT_RETENTION_DAYS`.
