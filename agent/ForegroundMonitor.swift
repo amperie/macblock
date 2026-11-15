@@ -85,7 +85,9 @@ final class ForegroundMonitor {
         let isIdle = idleSeconds() >= 300
         if isIdle && !idle {
             // Approximate idle onset rather than charging all idle time.
-            tracker.suspend(at: now.addingTimeInterval(-300))
+            let onset = now.addingTimeInterval(-300)
+            let boundary = max(onset, tracker.lastTransition ?? onset)
+            tracker.suspend(at: boundary)
         } else if !isIdle && idle {
             idle = false
             recordFrontmost()
