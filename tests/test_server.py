@@ -35,6 +35,40 @@ class ControlTests(unittest.TestCase):
             with urllib.request.urlopen(req) as response: return response.status, json.load(response)
         except urllib.error.HTTPError as error: return error.code, json.load(error)
 
+    def test_usage_history_and_retention(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        today = now.astimezone(s.ZoneInfo('America/Los_Angeles')).date()
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute('INSERT INTO quota_usage VALUES (?,?,?)',
+                         (today.isoformat(), 'com.roblox.RobloxPlayer', 120))
+            conn.execute('INSERT INTO quota_usage VALUES (?,?,?)',
+                         ((today - datetime.timedelta(days=7)).isoformat(), 'com.roblox.RobloxPlayer', 180))
+            conn.execute('INSERT INTO website_usage VALUES (?,?,?)',
+                         (today.isoformat(), 'example.com', 60))
+            conn.execute('INSERT INTO website_usage VALUES (?,?,?)',
+                         ((today - datetime.timedelta(days=110)).isoformat(), 'old.example', 900))
+            s.prune_history(conn, now)
+        self.assertEqual(self.call('/api/admin/usage', s.DEVICE)[0], 401)
+        code, report = self.call('/api/admin/usage', s.ADMIN)
+        self.assertEqual(code, 200)
+        self.assertEqual(report['retentionDays'], 90)
+        self.assertEqual(len(report['apps']), 1)
+        self.assertEqual(len(report['apps'][0]['weeks']), 2)
+        self.assertEqual(sum(report['apps'][0]['days'].values()), 300)
+        self.assertEqual([w['id'] for w in report['websites']], ['example.com'])
+
+    def test_browser_usage_heartbeat_and_validation(self):
+        self.assertEqual(self.call('/api/browser/activity', s.DEVICE, {'domain':'example.com'})[0], 401)
+        self.assertEqual(self.call('/api/browser/activity', s.BROWSER, {'domain':'https://example.com'})[0], 400)
+        self.assertEqual(self.call('/api/browser/activity', s.BROWSER, {'domain':'example.com'})[0], 200)
+        with sqlite3.connect(s.DB) as conn:
+            old = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=60)).isoformat()
+            conn.execute('UPDATE browser_current SET seen=?', (old,))
+        self.assertEqual(self.call('/api/browser/activity', s.BROWSER, {'domain':None})[0], 200)
+        report = self.call('/api/admin/usage', s.ADMIN)[1]
+        self.assertGreaterEqual(report['websites'][0]['days'][report['endDate']], 59)
+        self.assertEqual(self.call('/api/browser/activity', s.BROWSER, {'domain':None,'extra':1})[0], 400)
+
     def test_auth_separation(self):
         self.assertEqual(self.call('/api/admin/state', s.DEVICE)[0], 401)
         self.assertEqual(self.call('/api/device/policy', s.ADMIN)[0], 401)
