@@ -4,11 +4,13 @@ const vm = require('node:vm');
 const src = fs.readFileSync('browser/chrome/background.js','utf8');
 const handlers = {};
 let rules = [];
+let savedRevision = 0;
+let revision = 1;
 let config = {serverURL:'https://example.test',browserToken:'b'.repeat(40)};
 const api = {
   storage:{
     managed:{get:async()=>config},
-    local:{set:async()=>{}}
+    local:{get:async()=>({lastRevision:savedRevision}),set:async v=>{savedRevision=v.lastRevision;}}
   },
   declarativeNetRequest:{
     getDynamicRules:async()=>rules,
@@ -23,7 +25,7 @@ let domains=['instagram.com','tiktok.com'];
 const context = {chrome:api,console,URL,Date,fetch:async(url,opts)=>{
   assert.equal(url.href,'https://example.test/api/browser/domains');
   assert.equal(opts.headers.Authorization,'Bearer '+config.browserToken);
-  return {ok:true,json:async()=>({revision:1,blockedDomains:domains})};
+  return {ok:true,json:async()=>({revision,blockedDomains:domains})};
 }};
 vm.runInNewContext(src,context);
 (async()=>{
@@ -37,5 +39,11 @@ vm.runInNewContext(src,context);
   domains=['https://evil.com'];
   await handlers.alarm({name:'policy'}).catch(()=>{});
   assert.equal(rules[0].condition.urlFilter,'||youtube.com^');
+  revision = 2; domains=['reddit.com'];
+  await handlers.alarm({name:'policy'});
+  assert.equal(rules[0].condition.urlFilter,'||reddit.com^');
+  revision = 1; domains=['instagram.com'];
+  await handlers.alarm({name:'policy'});
+  assert.equal(rules[0].condition.urlFilter,'||reddit.com^');
   console.log('WebExtension policy tests passed');
 })().catch(e=>{console.error(e);process.exit(1)});
