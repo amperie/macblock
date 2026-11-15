@@ -18,7 +18,10 @@ jobs:
       - name: Python server tests
         run: python3 -m unittest discover -s tests -v
       - name: JavaScript syntax
-        run: node --check server/app.js
+        run: |
+          node --check server/app.js
+          node --check browser/chrome/background.js
+          python3 -m json.tool browser/chrome/manifest.json >/dev/null
       - name: Build Swift blocking daemon
         run: |
           mkdir -p "$RUNNER_TEMP/macblock-swift-cache"
