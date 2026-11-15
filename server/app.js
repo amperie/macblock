@@ -45,13 +45,18 @@ async function loadActivity() {
   const container = $('activity-events');
   container.replaceChildren();
   const totals = new Map();
+  const now = new Date();
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const dayEnd = dayStart + 86400000;
   for (const e of data.events) {
+    if (Date.parse(e.endedAt) < dayStart || Date.parse(e.startedAt) >= dayEnd) continue;
     const seconds = Math.max(0, (Date.parse(e.endedAt) - Date.parse(e.startedAt)) / 1000);
     totals.set(e.appName, (totals.get(e.appName) || 0) + seconds);
   }
   const summary = document.createElement('p');
   summary.textContent = [...totals.entries()].sort((a,b) => b[1] - a[1]).slice(0, 5)
     .map(([name, seconds]) => `${name}: ${Math.round(seconds / 60)}m`).join(' · ') || 'No completed sessions';
+  summary.prepend(document.createTextNode('Today (completed sessions): '));
   container.append(summary);
   for (const e of data.events.slice(0, 50)) {
     const row = document.createElement('div');
