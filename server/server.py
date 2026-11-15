@@ -454,7 +454,7 @@ class Handler(BaseHTTPRequestHandler):
                     rules = validate_app_rules(data.get('appRules', current.get('appRules', {})), apps)
                     overrides = validate_overrides(data.get('overrides', current.get('overrides', {})), apps)
                     current.update(apps=apps, enforcementTimeZone=tz, schedule=schedule, quota=quota, appRules=rules, overrides=overrides, blockedDomains=domains, revision=current['revision'] + 1)
-                    conn.execute("INSERT INTO alerts(kind,message,created) VALUES('policy','Parent changed MacBlock restrictions',?)", (datetime.datetime.now(datetime.timezone.utc).isoformat(),))
+                    conn.execute("INSERT INTO alerts(kind,message,created) VALUES('policy','Parent changed Orbit restrictions',?)", (datetime.datetime.now(datetime.timezone.utc).isoformat(),))
                     conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(current),))
                 self.reply(200, current)
             else:
