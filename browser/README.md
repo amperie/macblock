@@ -44,3 +44,29 @@ For robust enforcement, use supervised device management and verify actual
 Safari/Chrome policy state on the target Mac. If tamper resistance is mandatory,
 a properly entitled, signed system network content filter is the stronger
 fallback, not a hosts-file rule.
+
+## Installer usage (on target Mac)
+
+After publishing the Chrome extension and obtaining its real extension ID and
+update URL, configure `MACBLOCK_BROWSER_TOKEN` on the VPS and run:
+
+```bash
+sudo bash browser/install-browsers.sh \
+  --chrome-id ACTUAL_32_CHARACTER_EXTENSION_ID \
+  --chrome-update-url https://your-extension-update-server/update.xml \
+  --server-url https://your-macblock-server \
+  --browser-token YOUR_DISTINCT_READ_ONLY_BROWSER_TOKEN \
+  --safari-pkg /path/to/your-signed-safari-containing-app.pkg
+```
+
+The Safari package option is optional. The script checks package signing and
+installs the supplied package, but does not build or sign one. The generated
+Chrome configuration profile must be approved through System Settings or MDM;
+generating a profile does not install it. Run
+`bash browser/check-browsers.sh ACTUAL_32_CHARACTER_EXTENSION_ID` for
+diagnostics, then verify a blocked website in each browser.
+
+The extension ID, update URL, signed Safari package, and any required Apple
+signing credentials are not in this repository. Without these, a complete
+automatic installation is impossible. The current Safari implementation also
+needs an actual Safari-managed-settings compatibility test before deployment.
