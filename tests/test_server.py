@@ -61,7 +61,7 @@ class ControlTests(unittest.TestCase):
         client = str(uuid.uuid4())
         self.assertEqual(self.call('/api/browser/activity', s.DEVICE, {'domain':'example.com','clientId':client})[0], 401)
         self.assertEqual(self.call('/api/browser/activity', s.BROWSER, {'domain':'https://example.com','clientId':client})[0], 400)
-        self.assertEqual(self.call('/api/browser/activity', s.BROWSER, {'domain':'example.com'})[0], 200)
+        self.assertEqual(self.call('/api/browser/activity', s.BROWSER, {'domain':'example.com','clientId':client})[0], 200)
         with sqlite3.connect(s.DB) as conn:
             old = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=60)).isoformat()
             conn.execute('UPDATE browser_sessions SET seen=?', (old,))
