@@ -160,6 +160,8 @@ class Handler(BaseHTTPRequestHandler):
                 events, current = validate_activity(data)
                 with LOCK, sqlite3.connect(DB) as conn:
                     conn.executemany('INSERT OR IGNORE INTO activity VALUES (?,?,?,?,?)', events)
+                    cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)).isoformat()
+                    conn.execute('DELETE FROM activity WHERE end < ?', (cutoff,))
                     conn.execute("INSERT OR REPLACE INTO activity_current VALUES (1, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))", (json.dumps(current),))
                 return self.reply(200, {'ok': True})
             if self.path == '/api/admin/policy':
