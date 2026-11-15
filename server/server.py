@@ -53,15 +53,26 @@ def record_heartbeat(conn, current, config, now):
     zone = ZoneInfo(config.get('enforcementTimeZone', 'America/Los_Angeles'))
     day = now.astimezone(zone).date().isoformat()
     previous = conn.execute('SELECT payload, seen FROM activity_current WHERE id=1').fetchone()
-    if current and previous and previous[0] != 'null':
+    if previous and previous[0] != 'null':
         old = json.loads(previous[0])
-        elapsed = (now - parse_time(previous[1])).total_seconds()
-        if old and old.get('bundleId') == current.get('bundleId') and 0 < elapsed <= 90:
-            previous_day = parse_time(previous[1]).astimezone(zone).date().isoformat()
-            if previous_day == day:
+        previous_at = parse_time(previous[1])
+        elapsed = (now - previous_at).total_seconds()
+        if old and current and old.get('bundleId') == current.get('bundleId') and 0 < elapsed <= 90:
+            # Allocate across midnight in the parent-selected zone. A repeated
+            # local hour during DST does not reset or double-count usage.
+            cursor = previous_at
+            while cursor < now:
+                local_day = cursor.astimezone(zone).date()
+                next_midnight = datetime.datetime.combine(
+                    local_day + datetime.timedelta(days=1), datetime.time.min,
+                    tzinfo=zone).astimezone(datetime.timezone.utc)
+                boundary = min(now, next_midnight)
+                if boundary <= cursor:
+                    break
                 conn.execute('INSERT INTO quota_usage(day,bundle_id,seconds) VALUES(?,?,?) '
                              'ON CONFLICT(day,bundle_id) DO UPDATE SET seconds=seconds+excluded.seconds',
-                             (day, current['bundleId'], elapsed))
+                             (local_day.isoformat(), old['bundleId'], (boundary - cursor).total_seconds()))
+                cursor = boundary
 
 
 def validate_domains(domains):
