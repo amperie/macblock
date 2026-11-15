@@ -60,9 +60,20 @@ struct Policy: Codable {
         guard schemaVersion == 1, revision > 0, apps.count <= 100 else { throw Failure.invalidPolicy }
         if let schedule = schedule { try schedule.validate() }
         for (_, rule) in appSchedules ?? [:] { try rule.validate() }
-        if let quota = quota, quota.enabled {
+        if let quota = quota {
             guard quota.minutes >= 1, quota.minutes <= 1440,
-                  apps.contains(where: { $0.bundleId == quota.bundleId }) else { throw Failure.invalidPolicy }
+                  (!quota.enabled || apps.contains(where: { $0.bundleId == quota.bundleId }))
+            else { throw Failure.invalidPolicy }
+        }
+        if let state = quotaState {
+            guard state.usedSeconds.isFinite, state.usedSeconds >= 0,
+                  state.limitSeconds > 0, state.day.count == 10
+            else { throw Failure.invalidPolicy }
+        }
+        for (id, state) in appQuotaStates ?? [:] {
+            guard state.bundleId == id, state.usedSeconds.isFinite,
+                  state.usedSeconds >= 0, state.limitSeconds > 0,
+                  state.day.count == 10 else { throw Failure.invalidPolicy }
         }
         if let zone = enforcementTimeZone, TimeZone(identifier: zone) == nil { throw Failure.invalidPolicy }
         if let domains = blockedDomains {
