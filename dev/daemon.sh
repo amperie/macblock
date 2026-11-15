@@ -13,7 +13,7 @@ case "$action" in
     source_binary="$2" source_settings="$3" session="$4"
     [[ "$session" =~ ^[a-zA-Z0-9-]{12,100}$ ]] || exit 2
     [[ -f "$source_binary" && -f "$source_settings" && ! -L "$source_binary" && ! -L "$source_settings" ]] || exit 2
-    if [[ -e "$plist" || -e "$binary" || -e "$root/settings.json" || -e "$marker" ]]; then
+    if [[ -e "$plist" || -e "$binary" || -e "$root" || -e "$marker" ]]; then
       echo 'Existing MacBlock installation or state found. Refusing to replace it.' >&2
       exit 1
     fi
