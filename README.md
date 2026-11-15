@@ -200,3 +200,27 @@ It must be moved behind privileged authenticated IPC before treating the
 activity measurement as trustworthy. A disabled monitor will cause the
 limited app to be blocked once the server reports stale monitoring.
 The agent and VPS must both be updated before enabling quotas.
+
+## Extended controls (experimental)
+
+Parent dashboard supports per-app schedules, per-app daily allowances,
+30-minute temporary overrides (applied when Save is pressed), a website
+domain list, and an alert history. The server validates per-app rules,
+enforces a maximum 24-hour override, and supplies per-app quota decisions
+to the root daemon. A temporary override takes precedence over static,
+scheduled, and quota restrictions for that app until expiry.
+
+**Browser limitation:** `browser/chrome/` contains a prototype Chromium
+declarativeNetRequest extension. It currently reads rules from Chrome's local
+extension storage and is NOT connected to the server's blockedDomains policy.
+It is NOT force-installed or protected against removal. Safari requires a
+properly signed Safari Web Extension / content blocker or managed network
+filter; neither is implemented. The website domain list is configuration
+storage only, not active enforcement.
+
+**Security limitation:** The foreground monitor still uses a user-owned
+LaunchAgent and bearer token, not protected root-owned authenticated IPC.
+A standard user may interfere with or spoof monitoring. Alert history is
+visible in the dashboard but there is no push/email notification delivery.
+The root daemon and monitor must be tested on an actual Mac before production
+use. No automatic deployment is performed.
