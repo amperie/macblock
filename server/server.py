@@ -82,7 +82,7 @@ def validate_overrides(overrides, apps):
     allowed = {a['bundleId'] for a in apps}
     now = datetime.datetime.now(datetime.timezone.utc)
     for bid, until in overrides.items():
-        if bid not in allowed or not now < parse_time(until) <= now + datetime.timedelta(hours=24):
+        if bid not in allowed or not now - datetime.timedelta(days=1) < parse_time(until) <= now + datetime.timedelta(hours=24):
             raise ValueError('Invalid override')
     return overrides
 
@@ -154,6 +154,7 @@ def init_db():
         conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(existing),))
         conn.execute('CREATE TABLE IF NOT EXISTS quota_usage (day TEXT NOT NULL, bundle_id TEXT NOT NULL, seconds REAL NOT NULL, PRIMARY KEY(day,bundle_id))')
         conn.execute('CREATE TABLE IF NOT EXISTS status (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
+        conn.execute('CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, message TEXT, created TEXT)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity (event_id TEXT PRIMARY KEY, bundle_id TEXT NOT NULL, app_name TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity_current (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
 
@@ -254,6 +255,11 @@ class Handler(BaseHTTPRequestHandler):
                     appQuotaStates=app_quota_states(config),
                     serverTimeUTC=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     quotaState=quota_state(config)))
+        elif self.path == '/api/admin/alerts':
+            if self.authorized(ADMIN):
+                with sqlite3.connect(DB) as conn:
+                    rows = conn.execute('SELECT id, kind, message, created FROM alerts ORDER BY id DESC LIMIT 100').fetchall()
+                self.reply(200, {'alerts': [dict(id=r[0], kind=r[1], message=r[2], created=r[3]) for r in rows]})
         elif self.path == '/api/admin/activity':
             if self.authorized(ADMIN):
                 with sqlite3.connect(DB) as conn:
@@ -286,6 +292,9 @@ class Handler(BaseHTTPRequestHandler):
                     now = datetime.datetime.now(datetime.timezone.utc)
                     config = json.loads(conn.execute('SELECT payload FROM state WHERE id=1').fetchone()[0])
                     record_heartbeat(conn, current, config, now)
+                    previous = conn.execute('SELECT seen FROM activity_current WHERE id=1').fetchone()
+                    if previous and (now - parse_time(previous[0])).total_seconds() > 300:
+                        conn.execute("INSERT INTO alerts(kind,message,created) VALUES('monitor','Activity monitor reconnected after an outage',?)", (now.isoformat(),))
                     conn.executemany('INSERT OR IGNORE INTO activity VALUES (?,?,?,?,?)', events)
                     cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)).isoformat()
                     conn.execute('DELETE FROM activity WHERE end < ?', (cutoff,))
@@ -305,6 +314,7 @@ class Handler(BaseHTTPRequestHandler):
                     rules = validate_app_rules(data.get('appRules', current.get('appRules', {})), apps)
                     overrides = validate_overrides(data.get('overrides', current.get('overrides', {})), apps)
                     current.update(apps=apps, enforcementTimeZone=tz, schedule=schedule, quota=quota, appRules=rules, overrides=overrides, revision=current['revision'] + 1)
+                    conn.execute("INSERT INTO alerts(kind,message,created) VALUES('policy','Parent changed MacBlock restrictions',?)", (datetime.datetime.now(datetime.timezone.utc).isoformat(),))
                     conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(current),))
                 self.reply(200, current)
             else:
