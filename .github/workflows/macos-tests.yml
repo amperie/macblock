@@ -45,7 +45,7 @@ jobs:
           swiftc agent/FocusTracker.swift agent/ForegroundMonitor.swift -framework AppKit -framework IOKit -o "$RUNNER_TEMP/macblock-monitor"
       - name: Validate installation scripts and LaunchAgent plist
         run: |
-          bash -n agent/install.sh agent/install-monitor.sh browser/safari/build-project.sh
+          bash -n agent/install.sh agent/install-monitor.sh browser/safari/build-project.sh browser/install-browsers.sh browser/check-browsers.sh
           plutil -lint agent/com.macblock.foreground.plist agent/com.macblock.agent.plist
       - name: Test timezone-independent overnight schedules
         run: |
