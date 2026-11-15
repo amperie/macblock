@@ -19,7 +19,7 @@ class ControlTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         s.DB = os.path.join(self.tmp.name, 'state.sqlite3')
-        s.ADMIN, s.DEVICE, s.ACTIVITY = 'a' * 40, 'b' * 40, 'c' * 40
+        s.ADMIN, s.DEVICE, s.ACTIVITY, s.BROWSER = 'a' * 40, 'b' * 40, 'c' * 40, 'd' * 40
         s.init_db()
         self.http = ThreadingHTTPServer(('127.0.0.1', 0), s.Handler)
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
@@ -38,6 +38,8 @@ class ControlTests(unittest.TestCase):
     def test_auth_separation(self):
         self.assertEqual(self.call('/api/admin/state', s.DEVICE)[0], 401)
         self.assertEqual(self.call('/api/device/policy', s.ADMIN)[0], 401)
+        self.assertEqual(self.call('/api/browser/domains', s.DEVICE)[0], 401)
+        self.assertEqual(self.call('/api/browser/domains', s.BROWSER)[1]['blockedDomains'], [])
         self.assertEqual(self.call('/api/device/status', '', {})[0], 401)
 
     def test_policy_persistence_conflict_and_status(self):
