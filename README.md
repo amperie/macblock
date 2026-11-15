@@ -1,5 +1,9 @@
 # MacBlock
 
+## Fast local testing
+
+On a Mac, see [dev/README.md](dev/README.md). Run `bash dev/start.sh` for a local HTTPS dashboard and foreground monitor, `bash dev/test.sh` for tests, and `bash dev/browsers.sh` to generate Chrome/Safari development extension artifacts. Use `bash dev/start.sh --enforce` only on a dedicated test Mac to install the real Roblox-blocking daemon; the daemon persists after stopping the test server.
+
 A parent control website and macOS background agent for periodically terminating selected signed applications. Roblox and Opera are presets; additional apps can be added by signing identifier. No DNS changes, VPN interception, website filtering, or Endpoint Security entitlement is involved in this version.
 
 ## Behavior
