@@ -44,6 +44,8 @@ See [dev/README.md](dev/README.md) for more detail.
 | Parent dashboard and HTTPS policy API | Implemented | Server tests |
 | Per-app and global schedules | Implemented | Automated schedule tests |
 | Daily quotas and temporary allowances | Experimental | Automated accounting tests; approximate usage |
+| Daily/weekly application usage history | Implemented | Server-observed foreground heartbeat accounting; 90-day default retention |
+| Daily/weekly website usage history | Experimental | Active-tab/idle sampling; browser extension required; approximate time |
 | Foreground activity monitoring | Implemented, user LaunchAgent | Swift tests; not tamper-resistant |
 | Website domain configuration | Implemented | Server tests |
 | Chrome extension filtering | Experimental | Local unpacked installation/manual verification required |
@@ -53,7 +55,7 @@ See [dev/README.md](dev/README.md) for more detail.
 
 ### Security limitations
 
-The foreground monitor is owned by the logged-in user; its activity reports are not tamper-resistant. The daemon uses code-signing identifiers to find apps and sends SIGKILL; unsaved application data may be lost. A standard child account and private administrator password are strongly recommended. Browser extensions can be disabled or bypassed through unapproved browsers unless additional management is deployed. Do not rely on this software as fully bypass-resistant parental control until testing on the target Mac is complete.
+Usage history is retained for 90 local calendar days by default; set `MACBLOCK_RETENTION_DAYS` (1–3650) to change it. Pruning runs on server startup and incoming telemetry. The dashboard shows app and website totals by day and Monday-start week. Website tracking stores domain names, not URLs, and is approximate. Browser extension permissions include tabs and idle; actual Safari compatibility remains unverified.\n\nThe foreground monitor is owned by the logged-in user; its activity reports are not tamper-resistant. The daemon uses code-signing identifiers to find apps and sends SIGKILL; unsaved application data may be lost. A standard child account and private administrator password are strongly recommended. Browser extensions can be disabled or bypassed through unapproved browsers unless additional management is deployed. Do not rely on this software as fully bypass-resistant parental control until testing on the target Mac is complete.
 
 ## Deploying the server to a VPS
 
