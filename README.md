@@ -1,4 +1,6 @@
-# MacBlock
+# Orbit
+
+**Orbit** is the user-facing name of MacBlock. The GitHub repository, daemon identifiers, file paths, API credentials, and service labels deliberately retain `macblock` for compatibility. Do not rename these without a coordinated migration.
 
 Remote parental controls for macOS: a Python parent dashboard and a privileged Swift agent that terminates blocked signed applications. Foreground monitoring supports usage history, schedules, quotas and temporary allowances. Chrome and Safari WebExtension integration is **experimental**.
 
