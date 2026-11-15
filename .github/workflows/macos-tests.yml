@@ -21,6 +21,7 @@ jobs:
         run: |
           node --check server/app.js
           node --check browser/chrome/background.js
+          node tests/test_browser.js
           python3 -m json.tool browser/chrome/manifest.json >/dev/null
       - name: Build Swift blocking daemon
         run: |
