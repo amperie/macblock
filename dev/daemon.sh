@@ -3,10 +3,10 @@
 set -euo pipefail
 [[ $(id -u) -eq 0 ]] || { echo 'Run with sudo' >&2; exit 1; }
 action="${1:-}"
-root='/Library/Application Support/MacBlock'
-plist='/Library/LaunchDaemons/com.macblock.agent.plist'
-binary='/Library/PrivilegedHelperTools/macblock-agent'
-marker="$root/.macblock-dev-owner"
+root='/Library/Application Support/Orbit'
+plist='/Library/LaunchDaemons/com.side-forge.orbit.agent.plist'
+binary='/Library/PrivilegedHelperTools/orbit-agent'
+marker="$root/.orbit-dev-owner"
 case "$action" in
   install)
     [[ $# -eq 4 ]] || { echo 'Usage: sudo bash dev/daemon.sh install BUILD_BINARY SETTINGS SESSION_ID' >&2; exit 2; }
@@ -14,14 +14,14 @@ case "$action" in
     [[ "$session" =~ ^[a-zA-Z0-9-]{12,100}$ ]] || exit 2
     [[ -f "$source_binary" && -f "$source_settings" && ! -L "$source_binary" && ! -L "$source_settings" ]] || exit 2
     if [[ -e "$plist" || -e "$binary" || -e "$root" || -e "$marker" ]]; then
-      echo 'Existing MacBlock installation or state found. Refusing to replace it.' >&2
+      echo 'Existing Orbit installation or state found. Refusing to replace it.' >&2
       exit 1
     fi
     install -d -m 700 -o root -g wheel "$root"
     install -d -m 755 -o root -g wheel /Library/PrivilegedHelperTools
     install -m 755 -o root -g wheel "$source_binary" "$binary"
     install -m 600 -o root -g wheel "$source_settings" "$root/settings.json"
-    install -m 644 -o root -g wheel "$(dirname "$0")/../agent/com.macblock.agent.plist" "$plist"
+    install -m 644 -o root -g wheel "$(dirname "$0")/../agent/com.side-forge.orbit.agent.plist" "$plist"
     printf '%s\n' "$session" > "$marker"
     chmod 600 "$marker"
     if ! launchctl bootstrap system "$plist"; then
@@ -35,7 +35,7 @@ case "$action" in
     session="$2"
     [[ -f "$marker" && ! -L "$marker" ]] || { echo 'No development ownership marker; refusing removal.' >&2; exit 1; }
     [[ "$(<"$marker")" == "$session" ]] || { echo 'Session mismatch; refusing removal.' >&2; exit 1; }
-    launchctl bootout system/com.macblock.agent 2>/dev/null || true
+    launchctl bootout system/com.side-forge.orbit.agent 2>/dev/null || true
     rm -f "$plist" "$binary" "$root/settings.json" "$root/policy.json" "$marker"
     rmdir "$root" 2>/dev/null || true
     [[ ! -e "$plist" && ! -e "$binary" && ! -e "$marker" ]] || exit 1

@@ -2,7 +2,7 @@
 # Stop local test services and remove ONLY a daemon owned by this dev session.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-work="$PWD/.macblock-dev"
+work="$PWD/.orbit-dev"
 session_file="$work/session-id"
 errors=0
 stop_pid() {
@@ -27,7 +27,7 @@ stop_pid() {
   fi
   rm -f "$file"
 }
-stop_pid "$work/monitor.pid" macblock-foreground
+stop_pid "$work/monitor.pid" orbit-foreground
 stop_pid "$work/server.pid" dev/https_server.py
 if [[ -f "$session_file" ]]; then
   session=$(cat "$session_file")
@@ -46,8 +46,8 @@ if [[ -f "$session_file" ]]; then
   fi
 fi
 if [[ "$(uname -s)" == Darwin ]]; then
-  if launchctl print system/com.macblock.agent >/dev/null 2>&1; then
-    echo 'WARNING: MacBlock daemon remains loaded (may be a non-dev installation).' >&2
+  if launchctl print system/com.side-forge.orbit.agent >/dev/null 2>&1; then
+    echo 'WARNING: Orbit daemon remains loaded (may be a non-dev installation).' >&2
     errors=1
   fi
 fi

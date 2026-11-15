@@ -1,4 +1,4 @@
-"""MacBlock control plane. Put behind an HTTPS reverse proxy; bind loopback."""
+"""Orbit control plane. Put behind an HTTPS reverse proxy; bind loopback."""
 import hmac
 import json
 import os
@@ -12,15 +12,15 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 LOCK = threading.Lock()
-DB = os.environ.get('MACBLOCK_DB', 'macblock.sqlite3')
-ADMIN = os.environ.get('MACBLOCK_ADMIN_TOKEN', '')
-DEVICE = os.environ.get('MACBLOCK_DEVICE_TOKEN', '')
-ACTIVITY = os.environ.get('MACBLOCK_ACTIVITY_TOKEN', '')
-BROWSER = os.environ.get('MACBLOCK_BROWSER_TOKEN', '')
+DB = os.environ.get('ORBIT_DB', 'orbit.sqlite3')
+ADMIN = os.environ.get('ORBIT_ADMIN_TOKEN', '')
+DEVICE = os.environ.get('ORBIT_DEVICE_TOKEN', '')
+ACTIVITY = os.environ.get('ORBIT_ACTIVITY_TOKEN', '')
+BROWSER = os.environ.get('ORBIT_BROWSER_TOKEN', '')
 TIME_ZONES = ['America/Los_Angeles', 'America/Denver', 'America/Chicago', 'America/New_York', 'America/Phoenix', 'Pacific/Honolulu', 'Europe/London', 'Europe/Paris', 'Asia/Tokyo', 'Australia/Sydney', 'UTC']
-RETENTION_DAYS = int(os.environ.get('MACBLOCK_RETENTION_DAYS', '90'))
+RETENTION_DAYS = int(os.environ.get('ORBIT_RETENTION_DAYS', '90'))
 if not 1 <= RETENTION_DAYS <= 3650:
-    raise ValueError('MACBLOCK_RETENTION_DAYS must be between 1 and 3650')
+    raise ValueError('ORBIT_RETENTION_DAYS must be between 1 and 3650')
 
 PRESETS = [dict(name='Roblox', bundleId='com.roblox.RobloxPlayer', blocked=False),
            dict(name='Opera', bundleId='com.operasoftware.Opera', blocked=False)]
@@ -154,8 +154,8 @@ def validate_apps(apps):
         bid = app['bundleId']
         if not isinstance(bid, str) or not re.fullmatch(r'[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+', bid) or len(bid) > 255:
             raise ValueError('Invalid bundle identifier')
-        if bid.lower().startswith(('com.apple.', 'com.macblock.')):
-            raise ValueError('System and MacBlock apps cannot be blocked')
+        if bid.lower().startswith(('com.apple.', 'com.side-forge.orbit.')):
+            raise ValueError('System and Orbit apps cannot be blocked')
         if bid in seen or type(app['blocked']) is not bool:
             raise ValueError('Duplicate app or invalid block switch')
         seen.add(bid)
@@ -469,6 +469,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     if min(len(ADMIN), len(DEVICE), len(ACTIVITY), len(BROWSER)) < 32 or len({ADMIN, DEVICE, ACTIVITY, BROWSER}) != 4:
-        raise SystemExit('Set distinct MACBLOCK_ADMIN_TOKEN, MACBLOCK_DEVICE_TOKEN, MACBLOCK_ACTIVITY_TOKEN and MACBLOCK_BROWSER_TOKEN (at least 32 characters each)')
+        raise SystemExit('Set distinct ORBIT_ADMIN_TOKEN, ORBIT_DEVICE_TOKEN, ORBIT_ACTIVITY_TOKEN and ORBIT_BROWSER_TOKEN (at least 32 characters each)')
     init_db()
-    ThreadingHTTPServer((os.environ.get('MACBLOCK_BIND', '127.0.0.1'), int(os.environ.get('PORT', '8080'))), Handler).serve_forever()
+    ThreadingHTTPServer((os.environ.get('ORBIT_BIND', '127.0.0.1'), int(os.environ.get('PORT', '8080'))), Handler).serve_forever()

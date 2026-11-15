@@ -4,10 +4,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ "$(uname -s)" == Darwin ]] || { echo 'Requires macOS' >&2; exit 1; }
-work="$PWD/.macblock-dev"
+work="$PWD/.orbit-dev"
 [[ -f "$work/tokens.env" ]] || { echo 'Run bash dev/start.sh first.' >&2; exit 1; }
 set -a; source "$work/tokens.env"; set +a
-python3 - "$work/chrome-extension" "$MACBLOCK_BROWSER_TOKEN" <<'PY'
+python3 - "$work/chrome-extension" "$ORBIT_BROWSER_TOKEN" <<'PY'
 import json,pathlib,shutil,sys
 dst=pathlib.Path(sys.argv[1])
 src=pathlib.Path('browser/chrome')
@@ -31,7 +31,7 @@ if command -v xcrun >/dev/null && xcrun --find safari-web-extension-converter >/
   mkdir -p "$work/safari"
   xcrun safari-web-extension-converter "$work/chrome-extension" \
     --project-location "$work/safari" --app-name OrbitSafariDev \
-    --bundle-identifier com.macblock.safari.dev --no-open
+    --bundle-identifier com.side-forge.orbit.safari.dev --no-open
   echo "Open the generated Safari Xcode project in $work/safari, choose your signing team,"
   echo 'run the containing app, and enable its extension in Safari Settings.'
 else
