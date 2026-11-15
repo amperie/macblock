@@ -71,7 +71,7 @@ class ControlTests(unittest.TestCase):
         self.assertLessEqual(before, server_time)
         self.assertLessEqual(server_time, after)
         self.assertNotIn('serverTimeUTC', s.policy())
-        self.assertNotIn('enforcementTimeZone', s.policy())
+        self.assertEqual(s.policy()['enforcementTimeZone'], 'America/Los_Angeles')
 
     def test_timezone_schedule_update_and_persistence(self):
         _, policy = self.call('/api/device/policy', s.DEVICE)
