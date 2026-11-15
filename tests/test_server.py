@@ -70,6 +70,17 @@ class ControlTests(unittest.TestCase):
         self.assertGreaterEqual(report['websites'][0]['days'][report['endDate']], 59)
         self.assertEqual(self.call('/api/browser/activity', s.BROWSER, {'domain':None,'clientId':client,'extra':1})[0], 400)
 
+    def test_browser_midnight_split(self):
+        client = str(uuid.uuid4())
+        old = datetime.datetime(2026, 11, 15, 7, 59, 30, tzinfo=datetime.timezone.utc)
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute('INSERT INTO browser_sessions VALUES (?,?,?)',
+                         (client, 'example.com', old.isoformat()))
+            s.record_browser_heartbeat(conn, (client, None), s.policy(),
+                                       old + datetime.timedelta(seconds=60))
+            rows = conn.execute('SELECT day,seconds FROM website_usage ORDER BY day').fetchall()
+        self.assertEqual(rows, [('2026-11-14', 30.0), ('2026-11-15', 30.0)])
+
     def test_browser_sessions_are_isolated(self):
         first, second = str(uuid.uuid4()), str(uuid.uuid4())
         for client, domain in [(first, 'one.example'), (second, 'two.example')]:
