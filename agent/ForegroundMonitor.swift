@@ -155,9 +155,9 @@ struct MonitorMain {
         let directory = home.appendingPathComponent("Library/Application Support/MacBlock", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let settingsURL = directory.appendingPathComponent("monitor-settings.json")
+            let settingsURL = ProcessInfo.processInfo.environment["MACBLOCK_MONITOR_SETTINGS"].map { URL(fileURLWithPath: $0) } ?? directory.appendingPathComponent("monitor-settings.json")
             let settings = try JSONDecoder().decode(MonitorSettings.self, from: Data(contentsOf: settingsURL))
-            let monitor = try ForegroundMonitor(settings: settings, queueURL: directory.appendingPathComponent("activity-queue.json"))
+            let monitor = try ForegroundMonitor(settings: settings, queueURL: ProcessInfo.processInfo.environment["MACBLOCK_MONITOR_QUEUE"].map { URL(fileURLWithPath: $0) } ?? directory.appendingPathComponent("activity-queue.json"))
             monitor.start()
             RunLoop.main.run()
         } catch {
