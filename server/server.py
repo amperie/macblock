@@ -107,10 +107,15 @@ def validate_overrides(overrides, apps):
         raise ValueError('Invalid overrides')
     allowed = {a['bundleId'] for a in apps}
     now = datetime.datetime.now(datetime.timezone.utc)
+    active = {}
     for bid, until in overrides.items():
-        if bid not in allowed or not now - datetime.timedelta(days=1) < parse_time(until) <= now + datetime.timedelta(hours=24):
+        expiry = parse_time(until)
+        if bid not in allowed or expiry > now + datetime.timedelta(hours=24):
             raise ValueError('Invalid override')
-    return overrides
+        # Expired temporary allowances must not prevent future parent edits.
+        if expiry > now:
+            active[bid] = until
+    return active
 
 
 def app_quota_states(config, now=None):
