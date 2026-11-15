@@ -64,6 +64,12 @@ def init_db():
     with sqlite3.connect(DB) as conn:
         conn.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
         conn.execute('INSERT OR IGNORE INTO state VALUES (1, ?)', (json.dumps(dict(schemaVersion=1, revision=1, apps=PRESETS, enforcementTimeZone='America/Los_Angeles', schedule=dict(enabled=False, start='21:00', end='07:00'))),))
+        row = conn.execute('SELECT payload FROM state WHERE id=1').fetchone()
+        existing = json.loads(row[0])
+        if 'enforcementTimeZone' not in existing or 'schedule' not in existing:
+            existing.setdefault('enforcementTimeZone', 'America/Los_Angeles')
+            existing.setdefault('schedule', dict(enabled=False, start='21:00', end='07:00'))
+            conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(existing),))
         conn.execute('CREATE TABLE IF NOT EXISTS status (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity (event_id TEXT PRIMARY KEY, bundle_id TEXT NOT NULL, app_name TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity_current (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
