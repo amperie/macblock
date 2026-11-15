@@ -42,7 +42,12 @@ function render() {
     toggle.onchange = () => { app.blocked = toggle.checked; dirty = true; caption.textContent = app.blocked ? 'Blocked' : 'Allowed'; $('message').textContent = 'Unsaved changes'; };
     label.append(toggle, caption);
     const remove = document.createElement('button'); remove.textContent = 'Remove'; remove.className = 'secondary'; remove.setAttribute('aria-label', `Remove ${app.name}`);
-    remove.onclick = () => { state.policy.apps = state.policy.apps.filter(a => a !== app); dirty = true; render(); $('message').textContent = 'Unsaved changes'; };
+    remove.onclick = () => {
+      state.policy.apps = state.policy.apps.filter(a => a !== app);
+      if (state.policy.appRules) delete state.policy.appRules[app.bundleId];
+      if (state.policy.overrides) delete state.policy.overrides[app.bundleId];
+      if (state.policy.quota?.bundleId === app.bundleId) state.policy.quota.enabled = false;
+      dirty = true; render(); $('message').textContent = 'Unsaved changes'; };
     row.append(text, label, remove); $('apps').append(row);
   }
   renderPerAppRules();
