@@ -5,6 +5,8 @@ import os
 import re
 import sqlite3
 import threading
+import datetime
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -12,6 +14,7 @@ LOCK = threading.Lock()
 DB = os.environ.get('MACBLOCK_DB', 'macblock.sqlite3')
 ADMIN = os.environ.get('MACBLOCK_ADMIN_TOKEN', '')
 DEVICE = os.environ.get('MACBLOCK_DEVICE_TOKEN', '')
+ACTIVITY = os.environ.get('MACBLOCK_ACTIVITY_TOKEN', '')
 PRESETS = [dict(name='Roblox', bundleId='com.roblox.RobloxPlayer', blocked=False),
            dict(name='Opera', bundleId='com.operasoftware.Opera', blocked=False)]
 
@@ -41,11 +44,50 @@ def init_db():
         conn.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
         conn.execute('INSERT OR IGNORE INTO state VALUES (1, ?)', (json.dumps(dict(schemaVersion=1, revision=1, apps=PRESETS)),))
         conn.execute('CREATE TABLE IF NOT EXISTS status (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
+        conn.execute('CREATE TABLE IF NOT EXISTS activity (event_id TEXT PRIMARY KEY, bundle_id TEXT NOT NULL, app_name TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL)')
+        conn.execute('CREATE TABLE IF NOT EXISTS activity_current (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
 
 
 def policy():
     with sqlite3.connect(DB) as conn:
         return json.loads(conn.execute('SELECT payload FROM state WHERE id=1').fetchone()[0])
+
+
+def parse_time(value):
+    if not isinstance(value, str) or len(value) > 40:
+        raise ValueError('Invalid timestamp')
+    dt = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if dt.tzinfo is None:
+        raise ValueError('Timezone required')
+    return dt.astimezone(datetime.timezone.utc)
+
+
+def validate_activity(data):
+    if not isinstance(data, dict) or set(data) != {'events', 'current'}:
+        raise ValueError('Invalid activity payload')
+    events = data['events']
+    if not isinstance(events, list) or len(events) > 100:
+        raise ValueError('Invalid events')
+    current = data['current']
+    if current is not None:
+        if not isinstance(current, dict) or set(current) != {'bundleId', 'appName', 'since'}:
+            raise ValueError('Invalid current app')
+        parse_time(current['since'])
+        if not isinstance(current['bundleId'], str) or not 1 <= len(current['bundleId']) <= 255 or not isinstance(current['appName'], str) or not 1 <= len(current['appName']) <= 100:
+            raise ValueError('Invalid current app')
+    clean = []
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for e in events:
+        if not isinstance(e, dict) or set(e) != {'eventId', 'bundleId', 'appName', 'startedAt', 'endedAt'}:
+            raise ValueError('Invalid event')
+        uid = str(uuid.UUID(e['eventId']))
+        start, end = parse_time(e['startedAt']), parse_time(e['endedAt'])
+        if not start < end or (end - start).total_seconds() > 86400 or end > now + datetime.timedelta(minutes=5):
+            raise ValueError('Invalid event duration')
+        if not isinstance(e['bundleId'], str) or not 1 <= len(e['bundleId']) <= 255 or not isinstance(e['appName'], str) or not 1 <= len(e['appName']) <= 100:
+            raise ValueError('Invalid app')
+        clean.append((uid, e['bundleId'], e['appName'], start.isoformat(), end.isoformat()))
+    return clean, current
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -86,6 +128,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/device/policy':
             if self.authorized(DEVICE):
                 self.reply(200, policy())
+        elif self.path == '/api/admin/activity':
+            if self.authorized(ADMIN):
+                with sqlite3.connect(DB) as conn:
+                    rows = conn.execute('SELECT bundle_id, app_name, start, end FROM activity ORDER BY start DESC LIMIT 500').fetchall()
+                    current = conn.execute('SELECT payload, seen FROM activity_current WHERE id=1').fetchone()
+                self.reply(200, {'events': [dict(bundleId=r[0], appName=r[1], startedAt=r[2], endedAt=r[3]) for r in rows],
+                                 'current': json.loads(current[0]) if current else None,
+                                 'lastSeen': current[1] if current else None})
         elif self.path == '/api/admin/state':
             if self.authorized(ADMIN):
                 with sqlite3.connect(DB) as conn:
@@ -95,14 +145,20 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {'error': 'Not found'})
 
     def do_POST(self):
-        if self.path not in ('/api/admin/policy', '/api/device/status'):
+        if self.path not in ('/api/admin/policy', '/api/device/status', '/api/device/activity'):
             return self.reply(404, {'error': 'Not found'})
-        if not self.authorized(ADMIN if self.path == '/api/admin/policy' else DEVICE):
+        if not self.authorized(ADMIN if self.path == '/api/admin/policy' else ACTIVITY if self.path == '/api/device/activity' else DEVICE):
             return
         try:
             data = self.body()
             if not isinstance(data, dict):
                 raise ValueError('Expected an object')
+            if self.path == '/api/device/activity':
+                events, current = validate_activity(data)
+                with LOCK, sqlite3.connect(DB) as conn:
+                    conn.executemany('INSERT OR IGNORE INTO activity VALUES (?,?,?,?,?)', events)
+                    conn.execute("INSERT OR REPLACE INTO activity_current VALUES (1, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))", (json.dumps(current),))
+                return self.reply(200, {'ok': True})
             if self.path == '/api/admin/policy':
                 apps = validate_apps(data.get('apps'))
                 with LOCK, sqlite3.connect(DB) as conn:
@@ -118,12 +174,12 @@ class Handler(BaseHTTPRequestHandler):
                 with sqlite3.connect(DB) as conn:
                     conn.execute("INSERT OR REPLACE INTO status VALUES (1, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))", (json.dumps(data),))
                 self.reply(200, {'ok': True})
-        except (ValueError, TypeError, json.JSONDecodeError):
+        except (ValueError, TypeError, KeyError, OverflowError, json.JSONDecodeError):
             self.reply(400, {'error': 'Invalid request; check app names and bundle identifiers'})
 
 
 if __name__ == '__main__':
-    if len(ADMIN) < 32 or len(DEVICE) < 32 or ADMIN == DEVICE:
-        raise SystemExit('Set distinct MACBLOCK_ADMIN_TOKEN and MACBLOCK_DEVICE_TOKEN (at least 32 characters each)')
+    if min(len(ADMIN), len(DEVICE), len(ACTIVITY)) < 32 or len({ADMIN, DEVICE, ACTIVITY}) != 3:
+        raise SystemExit('Set distinct MACBLOCK_ADMIN_TOKEN, MACBLOCK_DEVICE_TOKEN and MACBLOCK_ACTIVITY_TOKEN (at least 32 characters each)')
     init_db()
     ThreadingHTTPServer((os.environ.get('MACBLOCK_BIND', '127.0.0.1'), int(os.environ.get('PORT', '8080'))), Handler).serve_forever()
