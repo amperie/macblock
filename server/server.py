@@ -26,7 +26,7 @@ def validate_quota(quota):
         raise ValueError('Invalid quota')
     if type(quota['enabled']) is not bool or type(quota['minutes']) is not int or not 1 <= quota['minutes'] <= 1440:
         raise ValueError('Invalid quota')
-    if not isinstance(quota['bundleId'], str) or not re.fullmatch(r'[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)+', quota['bundleId']):
+    if not isinstance(quota['bundleId'], str) or not re.fullmatch(r'[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+', quota['bundleId']):
         raise ValueError('Invalid quota app')
     return quota
 
