@@ -96,6 +96,17 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(self.call('/api/admin/policy', s.ADMIN, invalid)[0], 400)
         self.assertEqual(s.policy()['revision'], 2)
 
+    def test_quota_midnight_split(self):
+        with sqlite3.connect(s.DB) as conn:
+            old = datetime.datetime(2026, 11, 15, 7, 59, 30, tzinfo=datetime.timezone.utc)
+            now = old + datetime.timedelta(seconds=60)
+            conn.execute('INSERT OR REPLACE INTO activity_current VALUES (1, ?, ?)',
+                         (json.dumps(dict(bundleId='com.roblox.RobloxPlayer', appName='Roblox', since=old.isoformat())),
+                          old.isoformat()))
+            s.record_heartbeat(conn, dict(bundleId='com.roblox.RobloxPlayer'), s.policy(), now)
+            rows = conn.execute('SELECT day, seconds FROM quota_usage ORDER BY day').fetchall()
+        self.assertEqual(rows, [('2026-11-14', 30.0), ('2026-11-15', 30.0)])
+
     def test_quota_heartbeat_and_daily_limit(self):
         _, policy = self.call('/api/device/policy', s.DEVICE)
         policy['quota'] = dict(enabled=True, bundleId='com.roblox.RobloxPlayer', minutes=1)
