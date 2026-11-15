@@ -70,6 +70,23 @@ class ControlTests(unittest.TestCase):
         self.assertGreaterEqual(report['websites'][0]['days'][report['endDate']], 59)
         self.assertEqual(self.call('/api/browser/activity', s.BROWSER, {'domain':None,'clientId':client,'extra':1})[0], 400)
 
+    def test_browser_sessions_are_isolated(self):
+        first, second = str(uuid.uuid4()), str(uuid.uuid4())
+        for client, domain in [(first, 'one.example'), (second, 'two.example')]:
+            self.assertEqual(self.call('/api/browser/activity', s.BROWSER,
+                                       {'domain':domain,'clientId':client})[0], 200)
+        with sqlite3.connect(s.DB) as conn:
+            old = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=30)).isoformat()
+            conn.execute('UPDATE browser_sessions SET seen=?', (old,))
+        self.assertEqual(self.call('/api/browser/activity', s.BROWSER,
+                                   {'domain':None,'clientId':first})[0], 200)
+        report = self.call('/api/admin/usage', s.ADMIN)[1]
+        self.assertEqual([row['id'] for row in report['websites']], ['one.example'])
+        self.assertEqual(self.call('/api/browser/activity', s.BROWSER,
+                                   {'domain':None,'clientId':second})[0], 200)
+        report = self.call('/api/admin/usage', s.ADMIN)[1]
+        self.assertEqual([row['id'] for row in report['websites']], ['one.example', 'two.example'])
+
     def test_auth_separation(self):
         self.assertEqual(self.call('/api/admin/state', s.DEVICE)[0], 401)
         self.assertEqual(self.call('/api/device/policy', s.ADMIN)[0], 401)
