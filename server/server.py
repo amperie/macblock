@@ -57,7 +57,7 @@ def record_heartbeat(conn, current, config, now):
         old = json.loads(previous[0])
         previous_at = parse_time(previous[1])
         elapsed = (now - previous_at).total_seconds()
-        if old and current and old.get('bundleId') == current.get('bundleId') and 0 < elapsed <= 90:
+        if old and 0 < elapsed <= 90:
             # Allocate across midnight in the parent-selected zone. A repeated
             # local hour during DST does not reset or double-count usage.
             cursor = previous_at
