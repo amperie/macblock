@@ -36,3 +36,6 @@ jobs:
         run: |
           swiftc -D FOCUS_TRACKER_SELF_TEST agent/FocusTracker.swift -o "$RUNNER_TEMP/focus-tracker-tests"
           "$RUNNER_TEMP/focus-tracker-tests"
+      - name: Build foreground GUI monitor
+        run: |
+          swiftc agent/FocusTracker.swift agent/ForegroundMonitor.swift -framework AppKit -framework IOKit -o "$RUNNER_TEMP/macblock-monitor"
