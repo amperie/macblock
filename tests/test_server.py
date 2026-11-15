@@ -96,6 +96,20 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(self.call('/api/admin/policy', s.ADMIN, invalid)[0], 400)
         self.assertEqual(s.policy()['revision'], 2)
 
+    def test_switching_apps_accounts_previous_foreground(self):
+        with sqlite3.connect(s.DB) as conn:
+            now = datetime.datetime.now(datetime.timezone.utc)
+            old = now - datetime.timedelta(seconds=30)
+            conn.execute('INSERT OR REPLACE INTO activity_current VALUES (1, ?, ?)',
+                         (json.dumps(dict(bundleId='com.roblox.RobloxPlayer',
+                                          appName='Roblox', since=old.isoformat())), old.isoformat()))
+            s.record_heartbeat(conn, dict(bundleId='com.apple.Safari'), s.policy(), now)
+            day = now.astimezone(s.ZoneInfo('America/Los_Angeles')).date().isoformat()
+            used = conn.execute('SELECT seconds FROM quota_usage WHERE day=? AND bundle_id=?',
+                                (day, 'com.roblox.RobloxPlayer')).fetchone()
+        self.assertIsNotNone(used)
+        self.assertAlmostEqual(used[0], 30, delta=1)
+
     def test_quota_midnight_split(self):
         with sqlite3.connect(s.DB) as conn:
             old = datetime.datetime(2026, 11, 15, 7, 59, 30, tzinfo=datetime.timezone.utc)
