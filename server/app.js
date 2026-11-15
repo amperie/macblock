@@ -16,6 +16,17 @@ function render() {
   zone.value = state.policy.enforcementTimeZone || 'America/Los_Angeles';
   const schedule = state.policy.schedule || {enabled:false,start:'21:00',end:'07:00'};
   $('schedule-enabled').checked = schedule.enabled;
+  const quota = state.policy.quota || {enabled:false,bundleId:'com.roblox.RobloxPlayer',minutes:60};
+  const appSelect = $('quota-app'); appSelect.replaceChildren();
+  for (const app of state.policy.apps) {
+    const option = document.createElement('option'); option.value = app.bundleId;
+    option.textContent = app.name; appSelect.append(option);
+  }
+  appSelect.value = quota.bundleId;
+  $('quota-enabled').checked = quota.enabled;
+  $('quota-minutes').value = quota.minutes;
+  const usage = state.quotaState;
+  $('quota-status').textContent = usage ? `Today: ${Math.floor(usage.usedSeconds / 60)} / ${quota.minutes} min · ${usage.exceeded ? 'Limit reached' : usage.monitoringFresh ? 'Monitoring connected' : 'Monitoring unavailable'}` : '';
   $('schedule-start').value = schedule.start;
   $('schedule-end').value = schedule.end;
   $('apps').replaceChildren();
@@ -78,7 +89,7 @@ async function loadActivity() {
   }
 }
 $('activity-refresh').onclick = action(loadActivity);
-for (const id of ['enforcement-zone', 'schedule-enabled', 'schedule-start', 'schedule-end']) {
+for (const id of ['enforcement-zone', 'schedule-enabled', 'schedule-start', 'schedule-end', 'quota-enabled', 'quota-app', 'quota-minutes']) {
   $(id).addEventListener('change', () => {
     state.policy.enforcementTimeZone = $('enforcement-zone').value;
     state.policy.schedule = {
@@ -86,6 +97,7 @@ for (const id of ['enforcement-zone', 'schedule-enabled', 'schedule-start', 'sch
       start: $('schedule-start').value,
       end: $('schedule-end').value
     };
+    state.policy.quota = {enabled: $('quota-enabled').checked, bundleId: $('quota-app').value, minutes: Number($('quota-minutes').value)};
     dirty = true;
     $('message').textContent = 'Unsaved changes';
   });
