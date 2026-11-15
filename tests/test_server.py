@@ -1,4 +1,6 @@
 import importlib.util
+import datetime
+import uuid
 import json
 import os
 import tempfile
@@ -16,7 +18,7 @@ class ControlTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         s.DB = os.path.join(self.tmp.name, 'state.sqlite3')
-        s.ADMIN, s.DEVICE = 'a' * 40, 'b' * 40
+        s.ADMIN, s.DEVICE, s.ACTIVITY = 'a' * 40, 'b' * 40, 'c' * 40
         s.init_db()
         self.http = ThreadingHTTPServer(('127.0.0.1', 0), s.Handler)
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
@@ -55,5 +57,24 @@ class ControlTests(unittest.TestCase):
             apps = [rule, rule] if bid == 'com.example.app' else [rule]
             self.assertEqual(self.call('/api/admin/policy', s.ADMIN, dict(revision=1, apps=apps))[0], 400)
         self.assertEqual(s.policy()['revision'], 1)
+
+
+    def test_activity_auth_validation_and_deduplication(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        start = (now - datetime.timedelta(minutes=5)).isoformat()
+        end = (now - datetime.timedelta(minutes=4)).isoformat()
+        event = dict(eventId=str(uuid.uuid4()), bundleId='com.roblox.RobloxPlayer',
+                     appName='Roblox', startedAt=start, endedAt=end)
+        payload = dict(events=[event], current=None)
+        self.assertEqual(self.call('/api/device/activity', s.DEVICE, payload)[0], 401)
+        self.assertEqual(self.call('/api/admin/activity', s.DEVICE)[0], 401)
+        self.assertEqual(self.call('/api/device/activity', s.ACTIVITY, payload)[0], 200)
+        self.assertEqual(self.call('/api/device/activity', s.ACTIVITY, payload)[0], 200)
+        code, result = self.call('/api/admin/activity', s.ADMIN)
+        self.assertEqual(code, 200)
+        self.assertEqual(len(result['events']), 1)
+        invalid = dict(payload, events=[dict(event, endedAt=start)])
+        self.assertEqual(self.call('/api/device/activity', s.ACTIVITY, invalid)[0], 400)
+        self.assertEqual(len(self.call('/api/admin/activity', s.ADMIN)[1]['events']), 1)
 
 if __name__ == '__main__': unittest.main()
