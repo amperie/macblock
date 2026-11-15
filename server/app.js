@@ -7,6 +7,17 @@ async function api(path, body) {
   return data;
 }
 function render() {
+  const zone = $('enforcement-zone');
+  zone.replaceChildren();
+  for (const id of state.timeZones || ['America/Los_Angeles']) {
+    const option = document.createElement('option'); option.value = id;
+    option.textContent = id.replaceAll('_', ' '); zone.append(option);
+  }
+  zone.value = state.policy.enforcementTimeZone || 'America/Los_Angeles';
+  const schedule = state.policy.schedule || {enabled:false,start:'21:00',end:'07:00'};
+  $('schedule-enabled').checked = schedule.enabled;
+  $('schedule-start').value = schedule.start;
+  $('schedule-end').value = schedule.end;
   $('apps').replaceChildren();
   for (const app of state.policy.apps) {
     const row = document.createElement('div'); row.className = 'app';
@@ -67,5 +78,17 @@ async function loadActivity() {
   }
 }
 $('activity-refresh').onclick = action(loadActivity);
+for (const id of ['enforcement-zone', 'schedule-enabled', 'schedule-start', 'schedule-end']) {
+  $(id).addEventListener('change', () => {
+    state.policy.enforcementTimeZone = $('enforcement-zone').value;
+    state.policy.schedule = {
+      enabled: $('schedule-enabled').checked,
+      start: $('schedule-start').value,
+      end: $('schedule-end').value
+    };
+    dirty = true;
+    $('message').textContent = 'Unsaved changes';
+  });
+}
 const originalLoad = load;
 load = async function () { await originalLoad(); await loadActivity(); };
