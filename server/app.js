@@ -188,7 +188,8 @@ async function loadUsage() {
     for (const item of items) {
       const section = document.createElement('details');
       const title = document.createElement('summary');
-      title.textContent = item.id + ' · ' +
+      const name = kind === 'Applications' ? (state?.policy?.apps || []).find(a => a.bundleId === item.id)?.name : null;
+      title.textContent = (name ? name + ' (' + item.id + ')' : item.id) + ' · ' +
         format(Object.values(item.days).reduce((a,b)=>a+b,0)) + ' total';
       section.append(title);
       for (const [label, values] of [['Daily', item.days], ['Weekly (Monday start)', item.weeks]]) {
