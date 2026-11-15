@@ -55,13 +55,12 @@ chmod 600 "$work/"*settings.json
 swiftc -O agent/FocusTracker.swift agent/ForegroundMonitor.swift -framework AppKit -framework IOKit -o "$work/macblock-foreground"
 # Monitor currently loads settings from the user's Application Support directory.
 # Do not overwrite an installed production monitor's credentials.
-if [[ -f "$HOME/Library/Application Support/MacBlock/monitor-settings.json" ]]; then
-  echo 'Existing monitor settings found; skipping local monitor to avoid overwriting production configuration.'
+if launchctl list 2>/dev/null | grep -q 'com.macblock.foreground'; then
+  echo 'Installed foreground monitor is running; skipping duplicate development monitor.'
 else
-  mkdir -p "$HOME/Library/Application Support/MacBlock"
-  cp "$work/monitor-settings.json" "$HOME/Library/Application Support/MacBlock/monitor-settings.json"
-  chmod 600 "$HOME/Library/Application Support/MacBlock/monitor-settings.json"
-  "$work/macblock-foreground" >"$work/monitor.log" 2>&1 &
+  MACBLOCK_MONITOR_SETTINGS="$work/monitor-settings.json" \
+  MACBLOCK_MONITOR_QUEUE="$work/activity-queue.json" \
+    "$work/macblock-foreground" >"$work/monitor.log" 2>&1 &
   monitor_pid=$!
 fi
 if ((enforce)); then
