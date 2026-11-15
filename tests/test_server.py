@@ -1,6 +1,7 @@
 import importlib.util
 import datetime
 import uuid
+import sqlite3
 import json
 import os
 import tempfile
@@ -90,6 +91,23 @@ class ControlTests(unittest.TestCase):
         invalid = dict(saved, schedule=dict(enabled=True, start='25:00', end='07:00'))
         self.assertEqual(self.call('/api/admin/policy', s.ADMIN, invalid)[0], 400)
         self.assertEqual(s.policy()['revision'], 2)
+
+    def test_quota_heartbeat_and_daily_limit(self):
+        _, policy = self.call('/api/device/policy', s.DEVICE)
+        policy['quota'] = dict(enabled=True, bundleId='com.roblox.RobloxPlayer', minutes=1)
+        self.assertEqual(self.call('/api/admin/policy', s.ADMIN, policy)[0], 200)
+        current = dict(bundleId='com.roblox.RobloxPlayer', appName='Roblox',
+                       since=datetime.datetime.now(datetime.timezone.utc).isoformat())
+        payload = dict(events=[], current=current)
+        self.assertEqual(self.call('/api/device/activity', s.ACTIVITY, payload)[0], 200)
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute("UPDATE activity_current SET seen=datetime('now', '-70 seconds') WHERE id=1")
+        self.assertEqual(self.call('/api/device/activity', s.ACTIVITY, payload)[0], 200)
+        state = self.call('/api/device/policy', s.DEVICE)[1]['quotaState']
+        self.assertTrue(state['exceeded'])
+        self.assertGreaterEqual(state['usedSeconds'], 60)
+        self.assertTrue(state['monitoringFresh'])
+        self.assertEqual(self.call('/api/admin/state', s.ADMIN)[1]['quotaState']['day'], state['day'])
 
     def test_activity_auth_validation_and_deduplication(self):
         now = datetime.datetime.now(datetime.timezone.utc)
