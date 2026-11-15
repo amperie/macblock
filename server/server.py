@@ -15,6 +15,7 @@ DB = os.environ.get('MACBLOCK_DB', 'macblock.sqlite3')
 ADMIN = os.environ.get('MACBLOCK_ADMIN_TOKEN', '')
 DEVICE = os.environ.get('MACBLOCK_DEVICE_TOKEN', '')
 ACTIVITY = os.environ.get('MACBLOCK_ACTIVITY_TOKEN', '')
+ENFORCEMENT_TZ = 'America/Los_Angeles'
 PRESETS = [dict(name='Roblox', bundleId='com.roblox.RobloxPlayer', blocked=False),
            dict(name='Opera', bundleId='com.operasoftware.Opera', blocked=False)]
 
@@ -137,7 +138,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, Path(__file__).with_name(name).read_text(), mime)
         if self.path == '/api/device/policy':
             if self.authorized(DEVICE):
-                self.reply(200, policy())
+                self.reply(200, dict(policy(), serverTimeUTC=datetime.datetime.now(datetime.timezone.utc).isoformat(), enforcementTimeZone=ENFORCEMENT_TZ))
         elif self.path == '/api/admin/activity':
             if self.authorized(ADMIN):
                 with sqlite3.connect(DB) as conn:
