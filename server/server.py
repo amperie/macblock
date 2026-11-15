@@ -257,6 +257,8 @@ class Handler(BaseHTTPRequestHandler):
                     tz = validate_timezone(data.get('enforcementTimeZone', current.get('enforcementTimeZone', 'America/Los_Angeles')))
                     schedule = validate_schedule(data.get('schedule', current.get('schedule', dict(enabled=False, start='21:00', end='07:00'))))
                     quota = validate_quota(data.get('quota', current.get('quota', dict(enabled=False, bundleId='com.roblox.RobloxPlayer', minutes=60))))
+                    if quota['enabled'] and quota['bundleId'] not in {app['bundleId'] for app in apps}:
+                        raise ValueError('Quota app must be in the policy')
                     current.update(apps=apps, enforcementTimeZone=tz, schedule=schedule, quota=quota, revision=current['revision'] + 1)
                     conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(current),))
                 self.reply(200, current)
