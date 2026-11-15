@@ -146,7 +146,15 @@ func enforce() {
         let state = policy.quotaState
         quotaBlocked = !recentlySynced || trustedNow() == nil ||
             state == nil || state!.bundleId != quota.bundleId ||
-            !state!.monitoringFresh || state!.exceeded
+            !state!.monitoringFresh || state!.exceeded || {
+                guard let current = trustedNow(),
+                      let name = policy.enforcementTimeZone,
+                      let tz = TimeZone(identifier: name) else { return true }
+                var calendar = Calendar(identifier: .gregorian)
+                calendar.timeZone = tz
+                let p = calendar.dateComponents([.year, .month, .day], from: current)
+                return state!.day != String(format: "%04d-%02d-%02d", p.year!, p.month!, p.day!)
+            }()
     } else { quotaBlocked = false }
     let now = trustedNow()
     let zone = policy.enforcementTimeZone.flatMap(TimeZone.init(identifier:))
