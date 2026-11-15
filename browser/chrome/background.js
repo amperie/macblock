@@ -64,9 +64,12 @@ async function reportWebsite() {
       }
     }
   }
+  const saved = await api.storage.local.get('clientId');
+  const clientId = saved.clientId || crypto.randomUUID();
+  if (!saved.clientId) await api.storage.local.set({clientId});
   const response = await fetch(new URL('/api/browser/activity', base), {
     method:'POST', headers:{Authorization:'Bearer '+cfg.browserToken,'Content-Type':'application/json'},
-    body:JSON.stringify({domain}), redirect:'error',cache:'no-store'
+    body:JSON.stringify({domain,clientId}), redirect:'error',cache:'no-store'
   });
   if (!response.ok) throw Error('Website activity upload failed: '+response.status);
 }
