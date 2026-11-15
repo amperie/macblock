@@ -122,6 +122,7 @@ DispatchQueue.global(qos: .utility).async {
             let receivedUptime = ProcessInfo.processInfo.systemUptime
             let next = try decoder.decode(Policy.self, from: data); try next.validate()
             policyLock.lock()
+            if next.revision >= (active?.revision ?? 0) {
             // A cached policy must never be allowed to supply a trusted clock.
             if let timestamp = next.serverTimeUTC,
                next.enforcementTimeZone == "America/Los_Angeles",
@@ -130,7 +131,6 @@ DispatchQueue.global(qos: .utility).async {
             } else {
                 trustedTime = nil
             }
-            if next.revision >= (active?.revision ?? 0) {
                 do { try data.write(to: cache, options: .atomic); try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cache.path); active = next; lastError = "" }
                 catch { lastError = "Cannot persist policy" }
             } else { lastError = "Rejected older policy" }
