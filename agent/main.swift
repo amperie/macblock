@@ -160,7 +160,8 @@ func enforce() {
             appScheduled = (now != nil && zone != nil) ? rule.isBlocked(at: now!, zone: zone!) : true
         } else { appScheduled = scheduleBlocked }
         let appQuota = policy.appQuotaStates?[app.bundleId]
-        let appQuotaBlocked = appQuota.map { $0.exceeded || !$0.monitoringFresh || now == nil } ?? false
+        let quotaSyncValid = lastQuotaSyncUptime.map { let age = ProcessInfo.processInfo.systemUptime - $0; return age >= 0 && age <= 180 } ?? false
+        let appQuotaBlocked = appQuota.map { $0.exceeded || !$0.monitoringFresh || now == nil || !quotaSyncValid } ?? false
         return app.blocked || appScheduled || appQuotaBlocked ||
             (quotaBlocked && app.bundleId == policy.quota?.bundleId)
     }.map { $0.bundleId })
@@ -243,7 +244,7 @@ DispatchQueue.global(qos: .utility).async {
                           let parsed = trustedFormatter.date(from: timestamp) {
                     trustedTime = (parsed, receivedUptime)
                 }
-                if next.quota?.enabled == true {
+                if next.quota?.enabled == true || !(next.appQuotaStates ?? [:]).isEmpty {
                     lastQuotaSyncUptime = receivedUptime
                 } else {
                     lastQuotaSyncUptime = nil
@@ -258,7 +259,7 @@ DispatchQueue.global(qos: .utility).async {
         policyLock.unlock()
         do { _ = try request(settings, "/api/device/status", body: JSONSerialization.data(withJSONObject: report)) } catch { }
         policyLock.lock()
-        let refreshInterval: TimeInterval = active?.quota?.enabled == true ? 30 : 120
+        let refreshInterval: TimeInterval = (active?.quota?.enabled == true || !(active?.appQuotaStates ?? [:]).isEmpty) ? 30 : 120
         policyLock.unlock()
         Thread.sleep(forTimeInterval: refreshInterval)
     }
