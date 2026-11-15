@@ -12,6 +12,9 @@ const api = {
     managed:{get:async()=>config},
     local:{get:async()=>({lastRevision:savedRevision}),set:async v=>{savedRevision=v.lastRevision;}}
   },
+  idle:{queryState:async()=> 'active'},
+  windows:{getLastFocused:async()=>({id:1,focused:true})},
+  tabs:{query:async()=>[{url:'https://example.com/path?private=1'}]},
   declarativeNetRequest:{
     getDynamicRules:async()=>rules,
     updateDynamicRules:async({removeRuleIds,addRules})=>{
@@ -23,8 +26,13 @@ const api = {
 };
 let domains=['instagram.com','tiktok.com'];
 const context = {chrome:api,console,URL,Date,fetch:async(url,opts)=>{
-  assert.equal(url.href,'https://example.test/api/browser/domains');
   assert.equal(opts.headers.Authorization,'Bearer '+config.browserToken);
+  if (url.href.endsWith('/api/browser/activity')) {
+    assert.equal(opts.method,'POST');
+    assert.equal(JSON.parse(opts.body).domain,'example.com');
+    return {ok:true};
+  }
+  assert.equal(url.href,'https://example.test/api/browser/domains');
   return {ok:true,json:async()=>({revision,blockedDomains:domains})};
 }};
 vm.runInNewContext(src,context);
@@ -45,5 +53,6 @@ vm.runInNewContext(src,context);
   revision = 1; domains=['instagram.com'];
   await handlers.alarm({name:'policy'});
   assert.equal(rules[0].condition.urlFilter,'||reddit.com^');
-  console.log('WebExtension policy tests passed');
+  await handlers.alarm({name:'website'});
+  console.log('WebExtension policy and website telemetry tests passed');
 })().catch(e=>{console.error(e);process.exit(1)});
