@@ -146,6 +146,14 @@ class ControlTests(unittest.TestCase):
                           quota=dict(enabled=True, bundleId='com.example.missing', minutes=60))
         self.assertEqual(self.call('/api/admin/policy', s.ADMIN, bad_policy)[0], 400)
 
+    def test_security_health_reports_unverified_browser(self):
+        self.assertEqual(self.call('/api/admin/health', s.DEVICE)[0], 401)
+        code, health = self.call('/api/admin/health', s.ADMIN)
+        self.assertEqual(code, 200)
+        self.assertFalse(health['browserProtectionVerified'])
+        self.assertFalse(health['monitorConnected'])
+        self.assertFalse(health['deviceConnected'])
+
     def test_blocked_domain_policy(self):
         _, p = self.call('/api/device/policy', s.DEVICE)
         p['blockedDomains'] = ['instagram.com', 'tiktok.com']
