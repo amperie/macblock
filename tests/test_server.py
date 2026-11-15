@@ -81,5 +81,13 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(self.call('/api/admin/activity', s.ADMIN)[1]['current']['appName'], 'Safari')
         self.assertEqual(self.call('/api/device/activity', s.ACTIVITY, dict(events=[], current=None))[0], 200)
         self.assertIsNone(self.call('/api/admin/activity', s.ADMIN)[1]['current'])
+        for bad_id in [None, 123, 'not-a-uuid']:
+            bad = dict(event, eventId=bad_id)
+            self.assertEqual(self.call('/api/device/activity', s.ACTIVITY,
+                                       dict(events=[bad], current=None))[0], 400)
+        future = (now + datetime.timedelta(days=1)).isoformat()
+        self.assertEqual(self.call('/api/device/activity', s.ACTIVITY,
+                                   dict(events=[], current=dict(current, since=future)))[0], 400)
+        self.assertEqual(len(self.call('/api/admin/activity', s.ADMIN)[1]['events']), 1)
 
 if __name__ == '__main__': unittest.main()
