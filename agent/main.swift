@@ -28,6 +28,10 @@ struct Schedule: Codable {
         return a < b ? (minute >= a && minute < b) : (minute >= a || minute < b)
     }
 }
+struct AppSpecificRule: Codable {
+    let schedule: Schedule
+    let minutes: Int?
+}
 struct Quota: Codable {
     let enabled: Bool
     let bundleId: String
@@ -53,6 +57,7 @@ struct Policy: Codable {
     let quota: Quota?
     let quotaState: QuotaState?
     let appSchedules: [String: Schedule]?
+    let appRules: [String: AppSpecificRule]?
     let appQuotaStates: [String: QuotaState]?
     let overrides: [String: String]?
     let blockedDomains: [String]?
@@ -60,6 +65,10 @@ struct Policy: Codable {
         guard schemaVersion == 1, revision > 0, apps.count <= 100 else { throw Failure.invalidPolicy }
         if let schedule = schedule { try schedule.validate() }
         for (_, rule) in appSchedules ?? [:] { try rule.validate() }
+        for (_, rule) in appRules ?? [:] {
+            try rule.schedule.validate()
+            if let minutes = rule.minutes, !(1...1440).contains(minutes) { throw Failure.invalidPolicy }
+        }
         if let quota = quota {
             guard quota.minutes >= 1, quota.minutes <= 1440,
                   (!quota.enabled || apps.contains(where: { $0.bundleId == quota.bundleId }))
@@ -83,7 +92,8 @@ struct Policy: Codable {
             else { throw Failure.invalidPolicy }
         }
         let appIDs = Set(apps.map(\.bundleId))
-        guard (appSchedules ?? [:]).keys.allSatisfy({ appIDs.contains($0) }),
+        guard (appRules ?? [:]).keys.allSatisfy({ appIDs.contains($0) }),
+              (appSchedules ?? [:]).keys.allSatisfy({ appIDs.contains($0) }),
               (appQuotaStates ?? [:]).keys.allSatisfy({ appIDs.contains($0) }),
               (overrides ?? [:]).keys.allSatisfy({ appIDs.contains($0) })
         else { throw Failure.invalidPolicy }
@@ -201,10 +211,10 @@ func enforce() {
             let parts = calendar.dateComponents([.year, .month, .day], from: now!)
             return String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!)
         }() : nil
-        let appQuotaBlocked = appQuota.map {
-            $0.exceeded || !$0.monitoringFresh || now == nil ||
-            !quotaSyncValid || localDay != $0.day
-        } ?? false
+        let appQuotaRequired = policy.appRules?[app.bundleId]?.minutes != nil
+        let appQuotaBlocked = appQuotaRequired && (appQuota == nil ||
+            appQuota!.exceeded || !appQuota!.monitoringFresh || now == nil ||
+            !quotaSyncValid || localDay != appQuota!.day)
         return app.blocked || appScheduled || appQuotaBlocked ||
             (quotaBlocked && app.bundleId == policy.quota?.bundleId)
     }.map { $0.bundleId })
@@ -287,7 +297,7 @@ DispatchQueue.global(qos: .utility).async {
                           let parsed = trustedFormatter.date(from: timestamp) {
                     trustedTime = (parsed, receivedUptime)
                 }
-                if next.quota?.enabled == true || !(next.appQuotaStates ?? [:]).isEmpty {
+                if next.quota?.enabled == true || (next.appRules ?? [:]).values.contains(where: { $0.minutes != nil }) {
                     lastQuotaSyncUptime = receivedUptime
                 } else {
                     lastQuotaSyncUptime = nil
@@ -302,7 +312,7 @@ DispatchQueue.global(qos: .utility).async {
         policyLock.unlock()
         do { _ = try request(settings, "/api/device/status", body: JSONSerialization.data(withJSONObject: report)) } catch { }
         policyLock.lock()
-        let refreshInterval: TimeInterval = (active?.quota?.enabled == true || !(active?.appQuotaStates ?? [:]).isEmpty) ? 30 : 120
+        let refreshInterval: TimeInterval = (active?.quota?.enabled == true || (active?.appRules ?? [:]).values.contains(where: { $0.minutes != nil })) ? 30 : 120
         policyLock.unlock()
         Thread.sleep(forTimeInterval: refreshInterval)
     }
