@@ -82,7 +82,7 @@ def validate_activity(data):
             raise ValueError('Invalid event')
         uid = str(uuid.UUID(e['eventId']))
         start, end = parse_time(e['startedAt']), parse_time(e['endedAt'])
-        if not start < end or (end - start).total_seconds() > 86400 or end > now + datetime.timedelta(minutes=5):
+        if not start < end or (end - start).total_seconds() > 86400 or end > now + datetime.timedelta(minutes=5) or start < now - datetime.timedelta(days=31):
             raise ValueError('Invalid event duration')
         if not isinstance(e['bundleId'], str) or not 1 <= len(e['bundleId']) <= 255 or not isinstance(e['appName'], str) or not 1 <= len(e['appName']) <= 100:
             raise ValueError('Invalid app')
@@ -115,7 +115,10 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def body(self):
-        size = int(self.headers.get('Content-Length', '0'))
+        try:
+            size = int(self.headers.get('Content-Length', '0'))
+        except ValueError:
+            raise ValueError('Invalid body size')
         if not 0 < size <= 65536:
             raise ValueError('Invalid body size')
         return json.loads(self.rfile.read(size))
