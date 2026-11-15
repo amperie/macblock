@@ -9,15 +9,35 @@ import datetime
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 LOCK = threading.Lock()
 DB = os.environ.get('MACBLOCK_DB', 'macblock.sqlite3')
 ADMIN = os.environ.get('MACBLOCK_ADMIN_TOKEN', '')
 DEVICE = os.environ.get('MACBLOCK_DEVICE_TOKEN', '')
 ACTIVITY = os.environ.get('MACBLOCK_ACTIVITY_TOKEN', '')
-ENFORCEMENT_TZ = 'America/Los_Angeles'
+TIME_ZONES = ['America/Los_Angeles', 'America/Denver', 'America/Chicago', 'America/New_York', 'America/Phoenix', 'Pacific/Honolulu', 'Europe/London', 'Europe/Paris', 'Asia/Tokyo', 'Australia/Sydney', 'UTC']
 PRESETS = [dict(name='Roblox', bundleId='com.roblox.RobloxPlayer', blocked=False),
            dict(name='Opera', bundleId='com.operasoftware.Opera', blocked=False)]
+
+
+def validate_schedule(schedule):
+    if not isinstance(schedule, dict) or set(schedule) != {'enabled', 'start', 'end'}:
+        raise ValueError('Invalid schedule')
+    if type(schedule['enabled']) is not bool:
+        raise ValueError('Invalid schedule enabled')
+    for key in ('start', 'end'):
+        if not isinstance(schedule[key], str) or not re.fullmatch(r'(?:[01][0-9]|2[0-3]):[0-5][0-9]', schedule[key]):
+            raise ValueError('Invalid schedule time')
+    if schedule['start'] == schedule['end']:
+        raise ValueError('Schedule start and end must differ')
+    return schedule
+
+
+def validate_timezone(value):
+    if value not in TIME_ZONES:
+        raise ValueError('Unsupported timezone')
+    return value
 
 
 def validate_apps(apps):
@@ -43,7 +63,7 @@ def validate_apps(apps):
 def init_db():
     with sqlite3.connect(DB) as conn:
         conn.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
-        conn.execute('INSERT OR IGNORE INTO state VALUES (1, ?)', (json.dumps(dict(schemaVersion=1, revision=1, apps=PRESETS)),))
+        conn.execute('INSERT OR IGNORE INTO state VALUES (1, ?)', (json.dumps(dict(schemaVersion=1, revision=1, apps=PRESETS, enforcementTimeZone='America/Los_Angeles', schedule=dict(enabled=False, start='21:00', end='07:00'))),))
         conn.execute('CREATE TABLE IF NOT EXISTS status (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity (event_id TEXT PRIMARY KEY, bundle_id TEXT NOT NULL, app_name TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity_current (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
@@ -138,7 +158,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, Path(__file__).with_name(name).read_text(), mime)
         if self.path == '/api/device/policy':
             if self.authorized(DEVICE):
-                self.reply(200, dict(policy(), serverTimeUTC=datetime.datetime.now(datetime.timezone.utc).isoformat(), enforcementTimeZone=ENFORCEMENT_TZ))
+                self.reply(200, dict(policy(), serverTimeUTC=datetime.datetime.now(datetime.timezone.utc).isoformat()))
         elif self.path == '/api/admin/activity':
             if self.authorized(ADMIN):
                 with sqlite3.connect(DB) as conn:
@@ -151,7 +171,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.authorized(ADMIN):
                 with sqlite3.connect(DB) as conn:
                     row = conn.execute('SELECT payload, seen FROM status WHERE id=1').fetchone()
-                self.reply(200, dict(policy=policy(), device=dict(report=json.loads(row[0]), lastSeen=row[1]) if row else None))
+                self.reply(200, dict(timeZones=TIME_ZONES, policy=policy(), device=dict(report=json.loads(row[0]), lastSeen=row[1]) if row else None))
         else:
             self.reply(404, {'error': 'Not found'})
 
@@ -178,7 +198,9 @@ class Handler(BaseHTTPRequestHandler):
                     current = json.loads(conn.execute('SELECT payload FROM state WHERE id=1').fetchone()[0])
                     if data.get('revision') != current['revision']:
                         return self.reply(409, {'error': 'Settings changed. Reload before saving.'})
-                    current.update(apps=apps, revision=current['revision'] + 1)
+                    tz = validate_timezone(data.get('enforcementTimeZone', current.get('enforcementTimeZone', 'America/Los_Angeles')))
+                    schedule = validate_schedule(data.get('schedule', current.get('schedule', dict(enabled=False, start='21:00', end='07:00'))))
+                    current.update(apps=apps, enforcementTimeZone=tz, schedule=schedule, revision=current['revision'] + 1)
                     conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(current),))
                 self.reply(200, current)
             else:
