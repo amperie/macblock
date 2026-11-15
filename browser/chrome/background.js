@@ -32,8 +32,8 @@ async function update() {
   await api.declarativeNetRequest.updateDynamicRules({removeRuleIds:existing.map(r=>r.id),addRules:rules});
   await api.storage.local.set({lastRevision:policy.revision,lastSuccess:Date.now()});
 }
-api.runtime.onInstalled.addListener(()=>{update().catch(console.error);});
+api.runtime.onInstalled.addListener(()=>update().catch(console.error));
 api.runtime.onStartup.addListener(()=>{update().catch(console.error);});
-api.alarms.onAlarm.addListener(a=>{if(a.name==='policy')update().catch(console.error);});
+api.alarms.onAlarm.addListener(a=>a.name==='policy' ? update().catch(console.error) : Promise.resolve());
 api.alarms.create('policy',{periodInMinutes:1});
 update().catch(console.error);
