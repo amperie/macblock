@@ -7,6 +7,7 @@ import sqlite3
 import threading
 import datetime
 import uuid
+import calendar
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -18,6 +19,10 @@ DEVICE = os.environ.get('MACBLOCK_DEVICE_TOKEN', '')
 ACTIVITY = os.environ.get('MACBLOCK_ACTIVITY_TOKEN', '')
 BROWSER = os.environ.get('MACBLOCK_BROWSER_TOKEN', '')
 TIME_ZONES = ['America/Los_Angeles', 'America/Denver', 'America/Chicago', 'America/New_York', 'America/Phoenix', 'Pacific/Honolulu', 'Europe/London', 'Europe/Paris', 'Asia/Tokyo', 'Australia/Sydney', 'UTC']
+RETENTION_DAYS = int(os.environ.get('MACBLOCK_RETENTION_DAYS', '90'))
+if not 1 <= RETENTION_DAYS <= 3650:
+    raise ValueError('MACBLOCK_RETENTION_DAYS must be between 1 and 3650')
+
 PRESETS = [dict(name='Roblox', bundleId='com.roblox.RobloxPlayer', blocked=False),
            dict(name='Opera', bundleId='com.operasoftware.Opera', blocked=False)]
 
@@ -60,19 +65,8 @@ def record_heartbeat(conn, current, config, now):
         if old and 0 < elapsed <= 90:
             # Allocate across midnight in the parent-selected zone. A repeated
             # local hour during DST does not reset or double-count usage.
-            cursor = previous_at
-            while cursor < now:
-                local_day = cursor.astimezone(zone).date()
-                next_midnight = datetime.datetime.combine(
-                    local_day + datetime.timedelta(days=1), datetime.time.min,
-                    tzinfo=zone).astimezone(datetime.timezone.utc)
-                boundary = min(now, next_midnight)
-                if boundary <= cursor:
-                    break
-                conn.execute('INSERT INTO quota_usage(day,bundle_id,seconds) VALUES(?,?,?) '
-                             'ON CONFLICT(day,bundle_id) DO UPDATE SET seconds=seconds+excluded.seconds',
-                             (local_day.isoformat(), old['bundleId'], (boundary - cursor).total_seconds()))
-                cursor = boundary
+            add_daily_seconds(conn, 'quota_usage', 'bundle_id',
+                              old['bundleId'], previous_at, now, zone)
 
 
 def validate_domains(domains):
@@ -189,6 +183,84 @@ def init_db():
         conn.execute('CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, message TEXT, created TEXT)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity (event_id TEXT PRIMARY KEY, bundle_id TEXT NOT NULL, app_name TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity_current (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
+        conn.execute('CREATE TABLE IF NOT EXISTS website_usage (day TEXT NOT NULL, domain TEXT NOT NULL, seconds REAL NOT NULL, PRIMARY KEY(day,domain))')
+        conn.execute('CREATE TABLE IF NOT EXISTS browser_current (id INTEGER PRIMARY KEY, domain TEXT, seen TEXT)')
+        prune_history(conn)
+
+
+def prune_history(conn, now=None):
+    """Retain 90 rolling calendar days by default; keep current quota data intact."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    cutoff = (now - datetime.timedelta(days=RETENTION_DAYS)).date().isoformat()
+    conn.execute('DELETE FROM quota_usage WHERE day < ?', (cutoff,))
+    conn.execute('DELETE FROM website_usage WHERE day < ?', (cutoff,))
+    conn.execute('DELETE FROM activity WHERE end < ?', (now - datetime.timedelta(days=RETENTION_DAYS)).isoformat(),)
+    conn.execute('DELETE FROM alerts WHERE created < ?', ((now - datetime.timedelta(days=RETENTION_DAYS)).isoformat(),))
+
+
+def add_daily_seconds(conn, table, key_column, key, start, end, zone):
+    """Split server-observed usage at local midnight, including DST transitions."""
+    cursor = start
+    while cursor < end:
+        day = cursor.astimezone(zone).date()
+        next_midnight = datetime.datetime.combine(
+            day + datetime.timedelta(days=1), datetime.time.min,
+            tzinfo=zone).astimezone(datetime.timezone.utc)
+        boundary = min(end, next_midnight)
+        if boundary <= cursor:
+            break
+        conn.execute(
+            f'INSERT INTO {table}(day,{key_column},seconds) VALUES(?,?,?) '
+            f'ON CONFLICT(day,{key_column}) DO UPDATE SET seconds=seconds+excluded.seconds',
+            (day.isoformat(), key, (boundary - cursor).total_seconds()))
+        cursor = boundary
+
+
+def record_browser_heartbeat(conn, domain, config, now):
+    previous = conn.execute('SELECT domain, seen FROM browser_current WHERE id=1').fetchone()
+    if previous and previous[0]:
+        start = parse_time(previous[1])
+        elapsed = (now - start).total_seconds()
+        if 0 < elapsed <= 90:
+            zone = ZoneInfo(config.get('enforcementTimeZone', 'America/Los_Angeles'))
+            add_daily_seconds(conn, 'website_usage', 'domain', previous[0], start, now, zone)
+    conn.execute('INSERT OR REPLACE INTO browser_current(id,domain,seen) VALUES(1,?,?)',
+                 (domain, now.isoformat()))
+
+
+def validate_browser_heartbeat(payload):
+    if not isinstance(payload, dict) or set(payload) != {'domain'}:
+        raise ValueError('Invalid browser heartbeat')
+    domain = payload['domain']
+    if domain is not None:
+        if not isinstance(domain, str) or len(domain) > 253 or not re.fullmatch(
+                r'[a-z0-9-]+(?:\\.[a-z0-9-]+)+', domain):
+            raise ValueError('Invalid website domain')
+    return domain
+
+
+def usage_report(config, now=None):
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    zone = ZoneInfo(config.get('enforcementTimeZone', 'America/Los_Angeles'))
+    today = now.astimezone(zone).date()
+    cutoff = (today - datetime.timedelta(days=RETENTION_DAYS - 1)).isoformat()
+    results = {'apps': [], 'websites': []}
+    with sqlite3.connect(DB) as conn:
+        for kind, table, column in (('apps', 'quota_usage', 'bundle_id'),
+                                    ('websites', 'website_usage', 'domain')):
+            rows = conn.execute(
+                f'SELECT day,{column},seconds FROM {table} WHERE day>=? AND day<=? ORDER BY day',
+                (cutoff, today.isoformat())).fetchall()
+            by_key = {}
+            for day, key, seconds in rows:
+                entry = by_key.setdefault(key, {'id': key, 'days': {}, 'weeks': {}})
+                entry['days'][day] = round(seconds, 1)
+                week = datetime.date.fromisoformat(day)
+                week_start = (week - datetime.timedelta(days=week.weekday())).isoformat()
+                entry['weeks'][week_start] = round(entry['weeks'].get(week_start, 0) + seconds, 1)
+            results[kind] = sorted(by_key.values(), key=lambda e: e['id'])
+    return dict(timeZone=str(zone), retentionDays=RETENTION_DAYS,
+                startDate=cutoff, endDate=today.isoformat(), **results)
 
 
 def policy():
@@ -310,6 +382,9 @@ class Handler(BaseHTTPRequestHandler):
                 with sqlite3.connect(DB) as conn:
                     rows = conn.execute('SELECT id, kind, message, created FROM alerts ORDER BY id DESC LIMIT 100').fetchall()
                 self.reply(200, {'alerts': [dict(id=r[0], kind=r[1], message=r[2], created=r[3]) for r in rows]})
+        elif self.path == '/api/admin/usage':
+            if self.authorized(ADMIN):
+                self.reply(200, usage_report(policy()))
         elif self.path == '/api/admin/activity':
             if self.authorized(ADMIN):
                 with sqlite3.connect(DB) as conn:
@@ -328,14 +403,22 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {'error': 'Not found'})
 
     def do_POST(self):
-        if self.path not in ('/api/admin/policy', '/api/device/status', '/api/device/activity'):
+        if self.path not in ('/api/admin/policy', '/api/device/status', '/api/device/activity', '/api/browser/activity'):
             return self.reply(404, {'error': 'Not found'})
-        if not self.authorized(ADMIN if self.path == '/api/admin/policy' else ACTIVITY if self.path == '/api/device/activity' else DEVICE):
+        if not self.authorized(ADMIN if self.path == '/api/admin/policy' else ACTIVITY if self.path == '/api/device/activity' else BROWSER if self.path == '/api/browser/activity' else DEVICE):
             return
         try:
             data = self.body()
             if not isinstance(data, dict):
                 raise ValueError('Expected an object')
+            if self.path == '/api/browser/activity':
+                domain = validate_browser_heartbeat(data)
+                with LOCK, sqlite3.connect(DB) as conn:
+                    now = datetime.datetime.now(datetime.timezone.utc)
+                    config = json.loads(conn.execute('SELECT payload FROM state WHERE id=1').fetchone()[0])
+                    record_browser_heartbeat(conn, domain, config, now)
+                    prune_history(conn, now)
+                return self.reply(200, {'ok': True})
             if self.path == '/api/device/activity':
                 events, current = validate_activity(data)
                 with LOCK, sqlite3.connect(DB) as conn:
@@ -346,8 +429,7 @@ class Handler(BaseHTTPRequestHandler):
                     if previous and (now - parse_time(previous[0])).total_seconds() > 300:
                         conn.execute("INSERT INTO alerts(kind,message,created) VALUES('monitor','Activity monitor reconnected after an outage',?)", (now.isoformat(),))
                     conn.executemany('INSERT OR IGNORE INTO activity VALUES (?,?,?,?,?)', events)
-                    cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)).isoformat()
-                    conn.execute('DELETE FROM activity WHERE end < ?', (cutoff,))
+                    prune_history(conn, now)
                     conn.execute("INSERT OR REPLACE INTO activity_current VALUES (1, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))", (json.dumps(current),))
                 return self.reply(200, {'ok': True})
             if self.path == '/api/admin/policy':
