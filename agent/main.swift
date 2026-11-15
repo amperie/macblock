@@ -240,7 +240,10 @@ DispatchQueue.global(qos: .utility).async {
         let report: [String: Any] = ["revision": active?.revision ?? 0, "agentVersion": "0.2.0", "lastError": String(lastError.prefix(500))]
         policyLock.unlock()
         do { _ = try request(settings, "/api/device/status", body: JSONSerialization.data(withJSONObject: report)) } catch { }
-        Thread.sleep(forTimeInterval: active?.quota?.enabled == true ? 30 : 120)
+        policyLock.lock()
+        let refreshInterval: TimeInterval = active?.quota?.enabled == true ? 30 : 120
+        policyLock.unlock()
+        Thread.sleep(forTimeInterval: refreshInterval)
     }
 }
 while true { policyLock.lock(); enforce(); policyLock.unlock(); Thread.sleep(forTimeInterval: 2) }
