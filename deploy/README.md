@@ -59,6 +59,13 @@ admin token before installing the Mac agent against that address.
 
 ## GitHub deployment access
 
+For guided setup from your Mac, run `bash tools/githubsecrets.sh` after
+`gh auth login`. It creates a dedicated SSH key, asks you to verify the VPS host
+fingerprint, installs the public key through your existing VPS login, and sets
+all four secrets in the repository's `production` environment. Run the VPS
+installer first so the `orbit-deploy` account and release helper exist.
+The manual alternative follows.
+
 Create a dedicated SSH key for Actions on a trusted computer (not your personal
 SSH key):
 
