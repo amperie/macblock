@@ -1,0 +1,9 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {"label": "MacBlock: build debug agent", "type": "process", "command": "python3", "args": ["tools/dev.py", "build"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
+    {"label": "MacBlock: run whole system (dry run)", "type": "process", "command": "python3", "args": ["tools/dev.py", "all"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": [], "presentation": {"reveal": "always", "panel": "dedicated"}},
+    {"label": "MacBlock: run whole system (enforce)", "type": "process", "command": "python3", "args": ["tools/dev.py", "all", "--enforce"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": [], "presentation": {"reveal": "always", "panel": "dedicated"}},
+    {"label": "MacBlock: run test app", "type": "process", "command": "python3", "args": ["tools/dev.py", "fixture"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []}
+  ]
+}

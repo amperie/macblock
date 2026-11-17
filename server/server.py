@@ -12,6 +12,7 @@ LOCK = threading.Lock()
 DB = os.environ.get('MACBLOCK_DB', 'macblock.sqlite3')
 ADMIN = os.environ.get('MACBLOCK_ADMIN_TOKEN', '')
 DEVICE = os.environ.get('MACBLOCK_DEVICE_TOKEN', '')
+MAX_BODY = 65536
 PRESETS = [dict(name='Roblox', bundleId='com.roblox.RobloxPlayer', blocked=False),
            dict(name='Opera', bundleId='com.operasoftware.Opera', blocked=False)]
 
@@ -23,7 +24,7 @@ def validate_apps(apps):
     for app in apps:
         if not isinstance(app, dict) or set(app) != {'name', 'bundleId', 'blocked'}:
             raise ValueError('Each app requires name, bundleId, blocked')
-        if not isinstance(app['name'], str) or not 1 <= len(app['name'].strip()) <= 80:
+        if not isinstance(app['name'], str) or not app['name'].strip() or len(app['name']) > 80 or any(0xD800 <= ord(c) <= 0xDFFF for c in app['name']):
             raise ValueError('Invalid app name')
         bid = app['bundleId']
         if not isinstance(bid, str) or not re.fullmatch(r'[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+', bid) or len(bid) > 255:
@@ -34,6 +35,23 @@ def validate_apps(apps):
             raise ValueError('Duplicate app or invalid block switch')
         seen.add(bid)
     return apps
+
+
+def validate_domains(domains):
+    if not isinstance(domains, list) or len(domains) > 100:
+        raise ValueError('Supply at most 100 domains')
+    normalized = []
+    for domain in domains:
+        if not isinstance(domain, str) or not domain.isascii():
+            raise ValueError('Enter a domain name in ASCII or Punycode')
+        host = domain.strip().lower().removesuffix('.')
+        labels = host.split('.')
+        if (len(host) > 253 or len(labels) < 2 or not re.search('[a-z]', labels[-1])
+                or re.fullmatch(r'0x[0-9a-f]+', labels[-1])
+                or not all(re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label) for label in labels)):
+            raise ValueError('Enter a domain name without a URL, port, IP address, or wildcard')
+        normalized.append(host)
+    return sorted(set(normalized))
 
 
 def init_db():
@@ -52,6 +70,10 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         # Do not log credentials or request bodies.
         pass
+
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(10)
 
     def reply(self, code, data, content_type='application/json'):
         body = data.encode() if isinstance(data, str) else json.dumps(data).encode()
@@ -73,10 +95,15 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def body(self):
+        if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length', [])) != 1:
+            raise ValueError('Unsupported request framing')
         size = int(self.headers.get('Content-Length', '0'))
-        if not 0 < size <= 65536:
+        if not 0 < size <= MAX_BODY:
             raise ValueError('Invalid body size')
-        return json.loads(self.rfile.read(size))
+        body = self.rfile.read(size)
+        if len(body) != size:
+            raise ValueError('Incomplete body')
+        return json.loads(body)
 
     def do_GET(self):
         assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
@@ -105,20 +132,33 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('Expected an object')
             if self.path == '/api/admin/policy':
                 apps = validate_apps(data.get('apps'))
+                if 'blockedDomains' in data:
+                    try:
+                        domains = validate_domains(data['blockedDomains'])
+                    except ValueError as error:
+                        return self.reply(400, {'error': str(error)})
+                if type(data.get('revision')) is not int or not 0 < data['revision'] < 2**53 - 1:
+                    raise ValueError('Invalid revision')
                 with LOCK, sqlite3.connect(DB) as conn:
                     current = json.loads(conn.execute('SELECT payload FROM state WHERE id=1').fetchone()[0])
                     if data.get('revision') != current['revision']:
                         return self.reply(409, {'error': 'Settings changed. Reload before saving.'})
                     current.update(apps=apps, revision=current['revision'] + 1)
+                    if 'blockedDomains' in data:
+                        current['blockedDomains'] = domains
+                    # The wire policy must fit the agent's response size limit,
+                    # including JSON escaping and server-added fields.
+                    if len(json.dumps(current).encode()) > MAX_BODY:
+                        raise ValueError('Policy too large')
                     conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(current),))
                 self.reply(200, current)
             else:
-                if set(data) != {'revision', 'agentVersion', 'lastError'} or type(data['revision']) is not int or data['revision'] < 0 or not isinstance(data['agentVersion'], str) or len(data['agentVersion']) > 40 or not isinstance(data['lastError'], str) or len(data['lastError']) > 500:
+                if set(data) != {'revision', 'agentVersion', 'lastError'} or type(data['revision']) is not int or not 0 <= data['revision'] < 2**53 or not isinstance(data['agentVersion'], str) or len(data['agentVersion']) > 40 or not isinstance(data['lastError'], str) or len(data['lastError']) > 500:
                     raise ValueError('Invalid status')
                 with sqlite3.connect(DB) as conn:
                     conn.execute("INSERT OR REPLACE INTO status VALUES (1, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))", (json.dumps(data),))
                 self.reply(200, {'ok': True})
-        except (ValueError, TypeError, json.JSONDecodeError):
+        except (ValueError, TypeError, TimeoutError):
             self.reply(400, {'error': 'Invalid request; check app names and bundle identifiers'})
 
 

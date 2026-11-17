@@ -3,3 +3,6 @@ __pycache__/
 .env
 settings.json
 .build/
+.dev/
+.swiftpm/
+.DS_Store

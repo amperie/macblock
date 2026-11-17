@@ -27,7 +27,7 @@ class ControlTests(unittest.TestCase):
         self.http.shutdown(); self.http.server_close(); self.thread.join(); self.tmp.cleanup()
 
     def call(self, path, token, data=None):
-        req = urllib.request.Request(self.url + path, data=json.dumps(data).encode() if data is not None else None, headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
+        req = urllib.request.Request(self.url + path, data=json.dumps(data, ensure_ascii=False).encode() if data is not None else None, headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
         try:
             with urllib.request.urlopen(req) as response: return response.status, json.load(response)
         except urllib.error.HTTPError as error: return error.code, json.load(error)
@@ -54,6 +54,50 @@ class ControlTests(unittest.TestCase):
             rule = dict(name='App', bundleId=bid, blocked=True)
             apps = [rule, rule] if bid == 'com.example.app' else [rule]
             self.assertEqual(self.call('/api/admin/policy', s.ADMIN, dict(revision=1, apps=apps))[0], 400)
+        self.assertEqual(s.policy()['revision'], 1)
+
+    def test_invalid_revision_types(self):
+        for revision in [True, 1.0, '1', None, 2**53]:
+            code, _ = self.call('/api/admin/policy', s.ADMIN, dict(revision=revision, apps=[]))
+            self.assertEqual(code, 400)
+        self.assertEqual(s.policy()['revision'], 1)
+
+    def test_domains_are_normalized_preserved_by_legacy_edit_and_explicitly_cleared(self):
+        payload = dict(revision=1, apps=[], blockedDomains=[' TikTok.COM. ', 'instagram.com', 'tiktok.com'])
+        code, updated = self.call('/api/admin/policy', s.ADMIN, payload)
+        self.assertEqual(code, 200)
+        self.assertEqual(updated['blockedDomains'], ['instagram.com', 'tiktok.com'])
+        code, updated = self.call('/api/admin/policy', s.ADMIN, dict(revision=2, apps=[]))
+        self.assertEqual(code, 200)
+        self.assertEqual(updated['blockedDomains'], ['instagram.com', 'tiktok.com'])
+        code, updated = self.call('/api/admin/policy', s.ADMIN, dict(revision=3, apps=[], blockedDomains=[]))
+        self.assertEqual(code, 200)
+        self.assertEqual(updated['blockedDomains'], [])
+
+    def test_invalid_domains_preserve_the_revision(self):
+        for domains in [None, 'example.com', ['https://example.com'], ['*.example.com'], ['127.0.0.1'],
+                        ['0x7f.0x1'], ['example..com'], ['x.Kom'], ['example.com:80'], ['example.com'] * 101]:
+            with self.subTest(domains=domains):
+                self.assertEqual(self.call('/api/admin/policy', s.ADMIN, dict(revision=1, apps=[], blockedDomains=domains))[0], 400)
+        self.assertEqual(s.policy()['revision'], 1)
+
+    def test_expanded_policy_cannot_exceed_agent_limit(self):
+        # Small UTF-8 request expands past 64KB when the server JSON-escapes it.
+        apps = [dict(name='😀' * 80, bundleId=f'com.example.app{i}', blocked=True) for i in range(100)]
+        code, _ = self.call('/api/admin/policy', s.ADMIN, dict(revision=1, apps=apps))
+        self.assertEqual(code, 400)
+        self.assertEqual(s.policy()['revision'], 1)
+
+    def test_unicode_and_name_validation(self):
+        for name in ['   ', 'x' * 81, 'x' * 80 + ' ', '\ud800']:
+            rule = dict(name=name, bundleId='com.example.app', blocked=True)
+            # Escape invalid Unicode instead of attempting to encode a surrogate.
+            request = urllib.request.Request(self.url + '/api/admin/policy',
+                data=json.dumps(dict(revision=1, apps=[rule])).encode(),
+                headers={'Authorization': 'Bearer ' + s.ADMIN})
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(request)
+            self.assertEqual(error.exception.code, 400)
         self.assertEqual(s.policy()['revision'], 1)
 
 if __name__ == '__main__': unittest.main()

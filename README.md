@@ -11,6 +11,61 @@ A parent control website and macOS background agent for periodically terminating
 - Unblocking permits future launches; it does not reopen applications that were stopped. Unsaved app data can be lost when an app is killed.
 - This is a one-Mac, one-parent control service. A standard child account is recommended. An administrator can remove the daemon.
 
+## Run locally from an IDE
+
+Requires macOS, Python 3, and Xcode Command Line Tools. No sudo, installation, VPS, or additional Python packages are needed.
+
+Run this from the project root, or create an IDE Python run configuration for `tools/dev.py` with argument `all`:
+
+```sh
+python3 tools/dev.py all
+```
+
+Open **http://127.0.0.1:8765** and use the parent token printed in the IDE terminal. This starts both the website and agent. The agent polls every three seconds and starts in **dry-run mode**: it logs `Would stop …` instead of killing apps. Ctrl+C stops both processes. If either exits unexpectedly, the launcher stops the other one too.
+
+For actual app termination on your development Mac:
+
+```sh
+python3 tools/dev.py all --enforce
+```
+
+Development enforcement is limited to processes owned by your current user. Do not run development commands with sudo. The dashboard shows `dev-dry-run` or `dev-enforce` in the agent version.
+
+### VS Code
+
+Open this folder and use **Terminal → Run Task → MacBlock: run whole system (dry run)**. There are also tasks for enforcement and the test app. These tasks need no debugger extensions.
+
+For breakpoints, install the recommended Python Debugger and CodeLLDB extensions, then select **MacBlock: website + agent (dry run)** in Run and Debug and press F5. The compound configuration starts both debuggers; stop ends both. Select the enforce compound to actually kill blocked apps. Set Python breakpoints in `server/server.py` and Swift breakpoints in `agent/main.swift`.
+
+### Xcode or another IDE
+
+Open `Package.swift` in Xcode to debug the native agent. Run `python3 tools/dev.py setup` once, then edit the executable scheme's Run arguments:
+
+```text
+--dev --state-dir /absolute/path/to/MacBlock/.dev/agent
+```
+
+Add `--enforce` only when you want real termination. Launch the website separately with `python3 tools/dev.py server` (from the IDE terminal or a Python run configuration). For other IDEs, use that same server entry point; build the native debug executable with `python3 tools/dev.py build` and debug `.dev/macblock-agent` with the arguments above. The Swift package and direct build compile the same source.
+
+### Test without blocking your browser
+
+With the system running, start a second terminal or use the IDE task:
+
+```sh
+python3 tools/dev.py fixture
+```
+
+On the website add **MacBlock Test App** with identifier **org.macblock.debug.fixture**, switch it to blocked, and save. Dry run logs a match and leaves it running; enforcement stops it within the polling/scan interval. Run the fixture again to test repeated launches.
+
+Stop only the website while leaving the agent running to test an outage. Restart the agent while the website remains stopped to verify cached rules. These can be run independently:
+
+```sh
+python3 tools/dev.py server
+python3 tools/dev.py agent --enforce
+```
+
+All local credentials, database, settings, build output, and cached policy live in ignored `.dev/`, separate from production. State persists between runs; delete `.dev/` while everything is stopped to reset it. Use `--state-dir /another/local/directory` consistently on all commands for a second isolated environment. Choose a port with `--port 8766` on first setup; subsequent launches reuse it. Development permits HTTP only on loopback; production still requires HTTPS and root.
+
 ## Server on your VPS
 
 Requires Python 3.9 or later, no third-party Python packages. Use a dedicated subdomain and an HTTPS reverse proxy; the service binds only to loopback by default. Run it separately from CareTV.
@@ -55,7 +110,7 @@ Create `agent/settings.json` (ignored by Git):
 }
 ```
 
-Do not put a trailing slash on the server URL. Then run:
+Use the server origin only (no path or query). A trailing slash is accepted. Then run:
 
 ```sh
 sudo bash agent/install.sh
@@ -100,9 +155,10 @@ The agent validates code signatures but does not pin an expected developer Team 
 ```sh
 python3 -m unittest discover -s tests -v
 node --check server/app.js
+node tests/test_dashboard.cjs
 swiftc -module-cache-path /tmp/macblock-swift-cache agent/main.swift -framework Security -o /tmp/macblock-agent
 ```
 
-Integration tests cover parent/device credential separation, policy revision conflicts, durable storage, status reporting, and rejection of invalid/system app rules. The agent also offers `/tmp/macblock-agent --check-policy /path/to/policy.json` for validating a policy without installing it.
+Regression tests cover parent/device credential separation, policy revision conflicts, durable storage, status reporting, wire-size limits, invalid settings/rules, dashboard conflict recovery, and terminating a disposable signed test process. The test fixture runs as the current user; it does not install a daemon. The agent also offers `/tmp/macblock-agent --check-policy /path/to/policy.json` for validating a policy without installing it.
 
-Before relying on it, test on the target Mac: enable each preset while the app runs; try reopening it; disable and reopen; reboot while offline; change Wi-Fi/VPN; and verify that a server outage preserves restrictions. Actual root-daemon process termination and browser UI interactions have not been verified by these automated tests. This first version does not provide a signed/notarized installer or signed auto-updates.
+Before relying on it, test on the target Mac: enable each preset while the app runs; try reopening it; disable and reopen; reboot while offline; change Wi-Fi/VPN; and verify that a server outage preserves restrictions. Actual root-daemon installation and browser UI interactions have not been verified by these automated tests. This first version does not provide a signed/notarized installer or signed auto-updates.

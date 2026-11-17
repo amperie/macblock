@@ -1,0 +1,68 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "MacBlock: website",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/dev.py",
+      "args": [
+        "server"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "MacBlock: agent (dry run)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/.dev/macblock-agent",
+      "args": [
+        "--dev",
+        "--state-dir",
+        "${workspaceFolder}/.dev/agent"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "MacBlock: build debug agent"
+    },
+    {
+      "name": "MacBlock: agent (enforce)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/.dev/macblock-agent",
+      "args": [
+        "--dev",
+        "--enforce",
+        "--state-dir",
+        "${workspaceFolder}/.dev/agent"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "MacBlock: build debug agent"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:MacBlock}",
+      "name": "Debug macblock-agent",
+      "target": "macblock-agent",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug macblock-agent"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:MacBlock}",
+      "name": "Release macblock-agent",
+      "target": "macblock-agent",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release macblock-agent"
+    }
+  ],
+  "compounds": [
+    {"name": "MacBlock: website + agent (dry run)", "configurations": ["MacBlock: website", "MacBlock: agent (dry run)"], "stopAll": true},
+    {"name": "MacBlock: website + agent (enforce)", "configurations": ["MacBlock: website", "MacBlock: agent (enforce)"], "stopAll": true}
+  ]
+}
