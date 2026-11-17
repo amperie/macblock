@@ -35,6 +35,29 @@ class ControlTests(unittest.TestCase):
             with urllib.request.urlopen(req) as response: return response.status, json.load(response)
         except urllib.error.HTTPError as error: return error.code, json.load(error)
 
+    def test_menu_bar_preset_and_existing_policy_migration(self):
+        helper_id = 'com.roblox.RobloxPlayer.MenuBar'
+        config = s.policy()
+        self.assertIn(helper_id, {app['bundleId'] for app in config['apps']})
+        config['apps'] = [app for app in config['apps'] if app['bundleId'] != helper_id]
+        config['apps'][0]['blocked'] = True
+        config['revision'] = 7
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute('DELETE FROM schema_migrations')
+            conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(config),))
+        s.init_db()
+        migrated = s.policy()
+        self.assertEqual(migrated['revision'], 8)
+        self.assertTrue(next(app for app in migrated['apps'] if app['bundleId'] == helper_id)['blocked'])
+        s.init_db()
+        self.assertEqual(s.policy(), migrated)
+        # A deliberate removal after migration must survive later restarts.
+        migrated['apps'] = config['apps']
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(migrated),))
+        s.init_db()
+        self.assertNotIn(helper_id, {app['bundleId'] for app in s.policy()['apps']})
+
     def test_usage_history_and_retention(self):
         now = datetime.datetime.now(datetime.timezone.utc)
         today = now.astimezone(s.ZoneInfo('America/Los_Angeles')).date()

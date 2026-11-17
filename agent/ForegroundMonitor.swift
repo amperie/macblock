@@ -39,9 +39,12 @@ final class ForegroundMonitor {
             decoder.dateDecodingStrategy = .iso8601
             pending = (try? decoder.decode([FocusEvent].self, from: data)) ?? []
         }
-        guard let url = URL(string: settings.serverURL), url.scheme == "https",
+        let development = ProcessInfo.processInfo.environment["ORBIT_MONITOR_DEVELOPMENT"] == "1"
+        guard let url = URL(string: settings.serverURL),
+              url.scheme == "https" || (development && url.scheme == "http" && ["127.0.0.1", "localhost", "::1", "[::1]"].contains(url.host ?? "")),
               url.host != nil, url.user == nil, url.password == nil,
-              url.query == nil, url.fragment == nil, settings.activityToken.count >= 32
+              url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/",
+              settings.activityToken.count >= 32
         else { throw NSError(domain: "Orbit", code: 1) }
     }
 
@@ -56,6 +59,9 @@ final class ForegroundMonitor {
             center.addObserver(self, selector: #selector(resumed(_:)), name: name, object: nil)
         }
         recordFrontmost()
+        flush()
+        print("[Orbit] App time tracker started (foreground apps; pauses after 5 minutes idle)")
+        fflush(stdout)
         Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.tick() }
     }
 
@@ -121,7 +127,8 @@ final class ForegroundMonitor {
         // Cap local telemetry to bound storage during long outages.
         if pending.count > 10000 { pending.removeFirst(pending.count - 10000) }
         persist()
-        guard let url = URL(string: settings.serverURL + "/api/device/activity") else { return }
+        let base = settings.serverURL.hasSuffix("/") ? String(settings.serverURL.dropLast()) : settings.serverURL
+        guard let url = URL(string: base + "/api/device/activity") else { return }
         let current = (!suspended && !idle ? tracker.current : nil).map { Current(bundleId: $0.bundleId, appName: $0.appName, since: $0.startedAt) }
         guard !uploading else { return }
         let payload = Upload(events: Array(pending.prefix(100)), current: current)
@@ -154,14 +161,15 @@ struct MonitorMain {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let directory = home.appendingPathComponent("Library/Application Support/Orbit", isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let settingsURL = ProcessInfo.processInfo.environment["ORBIT_MONITOR_SETTINGS"].map { URL(fileURLWithPath: $0) } ?? directory.appendingPathComponent("monitor-settings.json")
             let settings = try JSONDecoder().decode(MonitorSettings.self, from: Data(contentsOf: settingsURL))
-            let monitor = try ForegroundMonitor(settings: settings, queueURL: ProcessInfo.processInfo.environment["ORBIT_MONITOR_QUEUE"].map { URL(fileURLWithPath: $0) } ?? directory.appendingPathComponent("activity-queue.json"))
+            let queueURL = ProcessInfo.processInfo.environment["ORBIT_MONITOR_QUEUE"].map { URL(fileURLWithPath: $0) } ?? directory.appendingPathComponent("activity-queue.json")
+            try FileManager.default.createDirectory(at: queueURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let monitor = try ForegroundMonitor(settings: settings, queueURL: queueURL)
             monitor.start()
             RunLoop.main.run()
         } catch {
-            fputs("Orbit monitor setup failed: \\(error)\\n", stderr)
+            fputs("Orbit monitor setup failed: \(error)\n", stderr)
             exit(1)
         }
     }

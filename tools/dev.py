@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from urllib.parse import quote
 
 PROJECT = Path(__file__).resolve().parents[1]
 
@@ -51,6 +52,7 @@ def setup(directory, port=None):
         agent_dir = directory / 'agent'
         agent_dir.mkdir(exist_ok=True, mode=0o700)
         write_private(agent_dir / 'settings.json', dict(serverURL=f"http://127.0.0.1:{config['port']}", deviceToken=config['deviceToken']))
+        write_private(directory / 'monitor-settings.json', dict(serverURL=f"http://127.0.0.1:{config['port']}", activityToken=config['activityToken']))
     return directory, config
 
 
@@ -58,6 +60,19 @@ def build(directory):
     binary = directory / 'orbit-agent'
     subprocess.run(['swiftc', '-g', '-Onone', '-module-cache-path', str(directory / 'modules'),
                     str(PROJECT / 'agent/main.swift'), '-framework', 'Security', '-o', str(binary)], check=True)
+    return binary
+
+
+def print_login_link(config):
+    url = f"http://127.0.0.1:{config['port']}/#token={quote(config['adminToken'], safe='')}"
+    print(f"\nOpen Orbit (signed-in development link):\n{url}\n", flush=True)
+
+
+def build_monitor(directory):
+    binary = directory / 'orbit-foreground'
+    subprocess.run(['swiftc', '-g', '-Onone', '-module-cache-path', str(directory / 'modules'),
+                    str(PROJECT / 'agent/FocusTracker.swift'), str(PROJECT / 'agent/ForegroundMonitor.swift'),
+                    '-framework', 'AppKit', '-framework', 'IOKit', '-o', str(binary)], check=True)
     return binary
 
 
@@ -71,7 +86,7 @@ def serve(directory, config):
     server.init_db()
     http = server.ThreadingHTTPServer(('127.0.0.1', config['port']), server.Handler)
     print(f"\nOrbit DEVELOPMENT website: http://127.0.0.1:{config['port']}", flush=True)
-    print(f"Parent access token (local development only): {config['adminToken']}", flush=True)
+    print_login_link(config)
     print(f"State: {directory}\n", flush=True)
     try:
         http.serve_forever()
@@ -103,6 +118,7 @@ def stop(child):
 
 def run_all(directory, config, enforce, poll_seconds):
     build(directory)
+    monitor = build_monitor(directory)
     children = []
     try:
         server = subprocess.Popen([sys.executable, str(__file__), 'server', '--state-dir', str(directory)], start_new_session=True)
@@ -120,6 +136,10 @@ def run_all(directory, config, enforce, poll_seconds):
         else:
             raise RuntimeError('Website did not become ready')
         children.append(subprocess.Popen(agent_command(directory, enforce, poll_seconds), start_new_session=True))
+        children.append(subprocess.Popen([str(monitor)], env=dict(os.environ,
+            ORBIT_MONITOR_SETTINGS=str(directory / 'monitor-settings.json'),
+            ORBIT_MONITOR_QUEUE=str(directory / 'activity-queue.json'),
+            ORBIT_MONITOR_DEVELOPMENT='1'), start_new_session=True))
         while all(child.poll() is None for child in children):
             time.sleep(0.25)
         raise RuntimeError('A development process exited; stopping the other process')
@@ -168,6 +188,7 @@ def main():
         elif args.command == 'agent':
             if not args.no_build:
                 build(directory)
+            print_login_link(config)
             os.execv(str(directory / 'orbit-agent'), agent_command(directory, args.enforce, args.poll_seconds))
         elif args.command == 'all':
             run_all(directory, config, args.enforce, args.poll_seconds)

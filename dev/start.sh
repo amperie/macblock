@@ -78,7 +78,7 @@ if ((enforce)); then
 fi
 echo
 echo "Dashboard: $url/"
-echo "Admin token (local only): $ORBIT_ADMIN_TOKEN"
+echo "Open Orbit (signed-in development link): $url/#token=$ORBIT_ADMIN_TOKEN"
 echo "Server log: $work/server.log"
 echo "Chrome/Safari setup: bash dev/browsers.sh"
 echo 'Ctrl-C stops the local services and removes the development daemon.'

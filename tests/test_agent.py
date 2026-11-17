@@ -84,7 +84,7 @@ class AgentValidationTests(unittest.TestCase):
                 path.write_text(json.dumps(dict(schemaVersion=1, revision=1, apps=[dict(name='Fixture', bundleId=identifier, blocked=blocked)])))
                 result = subprocess.run([self.harness, str(path)], check=True, capture_output=True, text=True)
                 if blocked:
-                    self.assertIn('Stopping ' + identifier, result.stdout)
+                    self.assertIn('Sent SIGKILL to ' + identifier, result.stdout)
                 else:
                     self.assertEqual(result.stdout.strip(), '')
             scan(False)

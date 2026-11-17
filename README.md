@@ -18,7 +18,7 @@ cd orbit
 bash dev/start.sh
 ```
 
-The launcher starts an HTTPS server at **https://localhost:18443/**, creates a private SQLite database and random development credentials, starts the foreground monitor, and installs the privileged daemon for actual app blocking. The parent token is printed in the terminal. It does not replace an existing Orbit daemon.
+The launcher starts an HTTPS server at **https://localhost:18443/**, creates a private SQLite database and random development credentials, starts the foreground monitor, and installs the privileged daemon for actual app blocking. The terminal prints a clickable login link that signs you in automatically. It does not replace an existing Orbit daemon.
 
 ```bash
 bash dev/start.sh --no-enforce  # No root daemon; test dashboard/monitor only
@@ -79,7 +79,7 @@ The project is currently intended for a single Mac and parent. Offline policy ca
 
 ## Run locally from an IDE
 
-This separate rootless workflow tests the dashboard and app blocking for your current user. It does not start the foreground monitor or install browser extensions; use the HTTPS launcher above for those integrations.
+This rootless workflow starts the dashboard, app blocker, and foreground app time tracker for your current user. Browser extensions still require the HTTPS launcher above.
 
 
 Requires macOS, Python 3, and Xcode Command Line Tools. No sudo, installation, VPS, or additional Python packages are needed.
@@ -90,7 +90,7 @@ Run this from the project root, or create an IDE Python run configuration for `t
 python3 tools/dev.py all
 ```
 
-Open **http://127.0.0.1:8765** and use the parent token printed in the IDE terminal. This starts both the website and agent. The agent polls every three seconds and starts in **dry-run mode**: it logs `Would stop …` instead of killing apps. Ctrl+C stops both processes. If either exits unexpectedly, the launcher stops the other one too.
+Open the clickable login link printed in the IDE terminal to connect automatically at **http://127.0.0.1:8765**. This starts the website, agent, and app time tracker. The agent polls every three seconds and starts in **dry-run mode**: it logs `Would stop …` instead of killing apps. Ctrl+C stops all three processes. If any exits unexpectedly, the launcher stops the others too. App usage appears under Usage over time; click Refresh usage after about 30 seconds.
 
 For actual app termination on your development Mac:
 

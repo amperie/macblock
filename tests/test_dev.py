@@ -26,6 +26,10 @@ class DevSetupTests(unittest.TestCase):
             self.assertEqual((directory / 'dev.json').stat().st_mode & 0o777, 0o600)
             settings = json.loads((directory / 'agent/settings.json').read_text())
             self.assertEqual(settings['serverURL'], 'http://127.0.0.1:8765')
+            monitor = json.loads((directory / 'monitor-settings.json').read_text())
+            self.assertEqual(monitor['activityToken'], first['activityToken'])
+            self.assertEqual(monitor['serverURL'], settings['serverURL'])
+            self.assertEqual((directory / 'monitor-settings.json').stat().st_mode & 0o777, 0o600)
             with self.assertRaises(ValueError):
                 dev.setup(directory, 9999)
 
@@ -119,7 +123,10 @@ class LocalSystemTests(unittest.TestCase):
                     try:
                         with urllib.request.urlopen(request, timeout=0.5) as response:
                             if json.load(response)['device']:
-                                break
+                                health_request = urllib.request.Request(f'http://127.0.0.1:{port}/api/admin/health', headers={'Authorization': 'Bearer ' + config['adminToken']})
+                                with urllib.request.urlopen(health_request, timeout=0.5) as health:
+                                    if json.load(health)['monitorConnected']:
+                                        break
                     except OSError:
                         pass
                     time.sleep(0.1)

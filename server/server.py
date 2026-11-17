@@ -24,6 +24,7 @@ if not 1 <= RETENTION_DAYS <= 3650:
 
 MAX_BODY = 65536
 PRESETS = [dict(name='Roblox', bundleId='com.roblox.RobloxPlayer', blocked=False),
+           dict(name='Roblox Menu Bar', bundleId='com.roblox.RobloxPlayer.MenuBar', blocked=False),
            dict(name='Opera', bundleId='com.operasoftware.Opera', blocked=False)]
 
 
@@ -196,6 +197,18 @@ def init_db():
         conn.execute('CREATE TABLE IF NOT EXISTS activity_current (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
         conn.execute('CREATE TABLE IF NOT EXISTS website_usage (day TEXT NOT NULL, domain TEXT NOT NULL, seconds REAL NOT NULL, PRIMARY KEY(day,domain))')
         conn.execute('CREATE TABLE IF NOT EXISTS browser_sessions (client_id TEXT PRIMARY KEY, domain TEXT, seen TEXT)')
+        conn.execute('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY)')
+        migration = 'roblox-menubar-preset'
+        if not conn.execute('SELECT 1 FROM schema_migrations WHERE name=?', (migration,)).fetchone():
+            player = next((app for app in existing['apps'] if app['bundleId'] == 'com.roblox.RobloxPlayer'), None)
+            helper = next((app for app in existing['apps'] if app['bundleId'] == 'com.roblox.RobloxPlayer.MenuBar'), None)
+            if player is not None and helper is None and len(existing['apps']) < 100:
+                updated = dict(existing, apps=[*existing['apps'], dict(
+                    name='Roblox Menu Bar', bundleId='com.roblox.RobloxPlayer.MenuBar', blocked=player['blocked'])],
+                    revision=existing['revision'] + 1)
+                if len(json.dumps(device_policy(updated)).encode()) <= MAX_BODY:
+                    conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(updated),))
+            conn.execute('INSERT INTO schema_migrations VALUES (?)', (migration,))
         prune_history(conn)
 
 

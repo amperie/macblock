@@ -306,8 +306,12 @@ func enforce(_ policy: Policy?, development: Bool = false, dryRun: Bool = false)
         // Validate the running code rather than trusting a process name or app path.
         guard SecCodeCheckValidity(code, [], nil) == errSecSuccess else { continue }
         if dryRun { log("Would stop \(identifier) (PID \(pid))"); continue }
-        log("Stopping \(identifier) (PID \(pid))")
-        if kill(pid, SIGKILL) != 0 && errno != ESRCH { errorMessage = "Unable to stop \(identifier): errno \(errno)" }
+        if kill(pid, SIGKILL) == 0 {
+            log("Sent SIGKILL to \(identifier) (PID \(pid))")
+        } else if errno != ESRCH {
+            errorMessage = "Unable to stop \(identifier) (PID \(pid)): errno \(errno)"
+            log(errorMessage)
+        }
     }
     return errorMessage
 }
@@ -395,7 +399,9 @@ DispatchQueue.global(qos: .utility).async {
                     lastQuotaSyncUptime = nil
                 }
             active = next; syncError = ""; policyLock.unlock()
-            if options.development { log("Received policy revision \(next.revision)") }
+            if options.development && next.revision != current?.revision {
+                log("Received policy revision \(next.revision)")
+            }
         } catch {
             policyLock.lock(); syncError = "Policy sync failed; keeping cached rules: \(error)"; policyLock.unlock()
             if options.development { log("Sync failed (\(error)); cached policy remains active") }

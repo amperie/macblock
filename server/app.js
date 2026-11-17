@@ -221,3 +221,14 @@ async function loadUsage() {
   }
 }
 $('usage-refresh').onclick = action(loadUsage);
+
+async function connectFromLink() {
+  const supplied = new URLSearchParams(window.location.hash.slice(1)).get('token');
+  if (!supplied) return;
+  // Consume the fragment before making requests; keep credentials in tab memory.
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  $('token').value = supplied;
+  await $('connect').onclick();
+  $('token').value = '';
+}
+void connectFromLink();
