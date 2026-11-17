@@ -17,6 +17,29 @@ spec.loader.exec_module(dev)
 
 
 class DevSetupTests(unittest.TestCase):
+    def test_vps_settings_use_supplied_credentials_and_separate_state(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config_path = root / 'vps.json'
+            dev.write_private(config_path, dict(adminToken='a' * 40, deviceToken='d' * 40, activityToken='m' * 40))
+            directory, config = dev.setup_remote(root / 'state', config_path)
+            self.assertEqual(config['serverURL'], 'https://orbit.side-forge.com')
+            self.assertEqual(json.loads((directory / 'agent/settings.json').read_text()),
+                             dict(serverURL=config['serverURL'], deviceToken='d' * 40))
+            self.assertFalse((directory / 'server.sqlite3').exists())
+            self.assertEqual(config_path.stat().st_mode & 0o777, 0o600)
+            config['serverURL'] = 'https://other.example.com'
+            dev.write_private(config_path, config)
+            with self.assertRaisesRegex(ValueError, 'fresh --state-dir'):
+                dev.setup_remote(directory, config_path)
+
+    def test_vps_rejects_missing_tokens_instead_of_generating_local_credentials(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(ValueError, 'deviceToken'):
+                dev.setup_remote(root / 'state', root / 'vps.json')
+            self.assertFalse((root / 'state/agent/settings.json').exists())
+
     def test_setup_reuses_credentials_and_keeps_state_private(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory, first = dev.setup(Path(temporary) / 'local', 8765)
@@ -60,7 +83,7 @@ class LocalSystemTests(unittest.TestCase):
                 children.append(child)
                 return child
             def command(mode, *args):
-                return [sys.executable, str(dev.PROJECT / 'tools/dev.py'), mode, '--state-dir', str(directory), *args]
+                return [sys.executable, str(dev.PROJECT / 'tools/dev.py'), mode, '--local', '--state-dir', str(directory), *args]
             def eventually(predicate, timeout=15):
                 deadline = time.monotonic() + timeout
                 while time.monotonic() < deadline:
@@ -113,7 +136,7 @@ class LocalSystemTests(unittest.TestCase):
                 listener.bind(('127.0.0.1', 0))
                 port = listener.getsockname()[1]
             directory, config = dev.setup(Path(temporary), port)
-            runner = subprocess.Popen([sys.executable, str(dev.PROJECT / 'tools/dev.py'), 'all', '--state-dir', str(directory)],
+            runner = subprocess.Popen([sys.executable, str(dev.PROJECT / 'tools/dev.py'), 'all', '--local', '--state-dir', str(directory)],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             request = urllib.request.Request(f'http://127.0.0.1:{port}/api/admin/state', headers={'Authorization': 'Bearer ' + config['adminToken']})
             try:

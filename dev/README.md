@@ -1,4 +1,16 @@
-# Fast local Orbit testing
+# Orbit testing
+
+## Default: VPS
+
+`bash dev/start.sh` starts the blocker and tracker for your current user against
+`https://orbit.side-forge.com`. It starts no local server and installs no daemon.
+Use `--no-enforce` for dry-run blocking. Configure the private Git-ignored
+`.dev/vps.json`; run `python3 tools/dev.py configure` to enter the VPS's device
+and activity tokens with hidden input. The dashboard admin token is separate.
+Ctrl-C stops both processes. The equivalent Python command is
+`python3 tools/dev.py all --enforce` (omit `--enforce` for dry run).
+
+The rest of this document describes the explicit `--local` workflow.
 
 ## Start (real blocking by default)
 
@@ -7,7 +19,7 @@ On macOS install Python 3.9+, Node.js, Xcode Command Line Tools, and a local HTT
 ```bash
 brew install mkcert
 mkcert -install
-bash dev/start.sh
+bash dev/start.sh --local
 ```
 
 This launches the local HTTPS dashboard at `https://localhost:18443/`, an isolated SQLite database, foreground monitor, and a **privileged app-blocking daemon**. The parent token prints in the terminal. It can terminate Roblox or any other app you block in the dashboard. Administrator authentication is required. Existing installed Orbit daemon/state is never replaced.
@@ -16,7 +28,7 @@ This launches the local HTTPS dashboard at `https://localhost:18443/`, an isolat
 
 ```bash
 bash dev/start.sh --help        # Print usage
-bash dev/start.sh --no-enforce  # Start without privileged blocking
+bash dev/start.sh --local --no-enforce  # Start without privileged blocking
 bash dev/test.sh                # Python, JavaScript and Swift checks
 bash dev/browsers.sh            # Generate Chrome unpacked extension and Safari Xcode project
 bash dev/stop.sh                # Stop local services and uninstall owned test daemon

@@ -2,12 +2,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Orbit: website",
+      "name": "Orbit: VPS blocker + tracker (dry run)",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/tools/dev.py",
       "args": [
-        "server"
+        "all"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
@@ -17,11 +17,11 @@
       "name": "Orbit: agent (dry run)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/.dev/orbit-agent",
+      "program": "${workspaceFolder}/.dev/vps/orbit-agent",
       "args": [
         "--dev",
         "--state-dir",
-        "${workspaceFolder}/.dev/agent"
+        "${workspaceFolder}/.dev/vps/agent"
       ],
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "Orbit: build debug agent"
@@ -30,12 +30,12 @@
       "name": "Orbit: agent (enforce)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/.dev/orbit-agent",
+      "program": "${workspaceFolder}/.dev/vps/orbit-agent",
       "args": [
         "--dev",
         "--enforce",
         "--state-dir",
-        "${workspaceFolder}/.dev/agent"
+        "${workspaceFolder}/.dev/vps/agent"
       ],
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "Orbit: build debug agent"
@@ -43,26 +43,31 @@
     {
       "type": "swift",
       "request": "launch",
-      "args": [],
+      "args": [
+        "--dev",
+        "--state-dir",
+        "${workspaceFolder}/.dev/vps/agent"
+      ],
       "cwd": "${workspaceFolder}",
       "name": "Debug orbit-agent",
       "target": "orbit-agent",
       "configuration": "debug",
-      "preLaunchTask": "swift: Build Debug orbit-agent"
+      "preLaunchTask": "Orbit: build debug agent"
     },
     {
       "type": "swift",
       "request": "launch",
-      "args": [],
+      "args": [
+        "--dev",
+        "--state-dir",
+        "${workspaceFolder}/.dev/vps/agent"
+      ],
       "cwd": "${workspaceFolder}",
       "name": "Release orbit-agent",
       "target": "orbit-agent",
       "configuration": "release",
-      "preLaunchTask": "swift: Build Release orbit-agent"
+      "preLaunchTask": "Orbit: build debug agent"
     }
   ],
-  "compounds": [
-    {"name": "Orbit: website + agent (dry run)", "configurations": ["Orbit: website", "Orbit: agent (dry run)"], "stopAll": true},
-    {"name": "Orbit: website + agent (enforce)", "configurations": ["Orbit: website", "Orbit: agent (enforce)"], "stopAll": true}
-  ]
+  "compounds": []
 }

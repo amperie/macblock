@@ -1,5 +1,29 @@
 let token = '', state, dirty = false, busy = false;
 const $ = id => document.getElementById(id);
+const tabNames = ['blocking', 'monitoring', 'schedules', 'protection', 'alerts'];
+let activeTab = 'blocking', usageData;
+const appNames = new Map();
+const duration = seconds => {
+  if (seconds <= 0) return '0 min';
+  if (seconds < 60) return '<1 min';
+  const minutes = Math.floor(seconds / 60);
+  return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes} min`;
+};
+function showTab(name) {
+  if (!tabNames.includes(name)) return;
+  activeTab = name;
+  for (const tab of tabNames) {
+    const selected = tab === name;
+    $('tab-' + tab).setAttribute('aria-selected', String(selected));
+    $('tab-' + tab).tabIndex = selected ? 0 : -1;
+    $('panel-' + tab).hidden = !selected;
+  }
+}
+async function refreshMonitoring() {
+  await Promise.all([loadActivity(), loadUsage()]);
+  renderUsageCharts();
+}
+
 async function api(path, body) {
   const response = await fetch(path, {method: body ? 'POST' : 'GET', headers: {'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json'}, ...(body ? {body: JSON.stringify(body)} : {})});
   const data = await response.json();
@@ -64,9 +88,9 @@ function action(fn) { return async event => {
   const disable = value => document.querySelectorAll('button, input, select, textarea').forEach(element => { element.disabled = value; });
   disable(true); $('message').textContent = '';
   try { await fn(); } catch (error) { $('message').textContent = error.message; }
-  finally { busy = false; disable(false); }
+  finally { busy = false; disable(false); updateSaveState(); }
 }; }
-$('connect').onclick = action(async () => { token = $('token').value; await load(); $('token').value = ''; await loadUsage(); });
+$('connect').onclick = action(async () => { token = $('token').value; await load(); $('token').value = ''; await refreshMonitoring(); });
 $('refresh').onclick = action(load);
 $('discard').onclick = action(async () => {
   // Do not drop edits until the replacement state has arrived successfully.
@@ -79,32 +103,21 @@ window.addEventListener('beforeunload', event => { if (dirty) { event.preventDef
 
 async function loadActivity() {
   const data = await api('/api/admin/activity');
+  for (const event of data.events) appNames.set(event.bundleId, event.appName);
+  if (data.current) appNames.set(data.current.bundleId, data.current.appName);
   const last = data.lastSeen ? Date.parse(data.lastSeen) : 0;
   const fresh = last && Date.now() - last < 120000;
+  $('current-app').textContent = fresh && data.current ? data.current.appName : fresh ? 'Idle or inactive' : 'Not connected';
   $('activity-current').textContent = fresh && data.current
     ? `Foreground: ${data.current.appName} (since ${new Date(data.current.since).toLocaleTimeString()})`
     : data.lastSeen ? `No current activity confirmed · Last update ${new Date(data.lastSeen).toLocaleString()}` : 'No activity reported';
   const container = $('activity-events');
   container.replaceChildren();
-  const totals = new Map();
-  const now = new Date();
-  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
-  for (const e of data.events) {
-    if (Date.parse(e.endedAt) < dayStart || Date.parse(e.startedAt) >= dayEnd) continue;
-    const seconds = Math.max(0, (Math.min(Date.parse(e.endedAt), dayEnd) - Math.max(Date.parse(e.startedAt), dayStart)) / 1000);
-    totals.set(e.appName, (totals.get(e.appName) || 0) + seconds);
-  }
-  const summary = document.createElement('p');
-  summary.textContent = [...totals.entries()].sort((a,b) => b[1] - a[1]).slice(0, 5)
-    .map(([name, seconds]) => `${name}: ${Math.round(seconds / 60)}m`).join(' · ') || 'No completed sessions';
-  summary.prepend(document.createTextNode('Today (completed sessions): '));
-  container.append(summary);
   for (const e of data.events.slice(0, 50)) {
     const row = document.createElement('div');
-    row.className = 'app';
+    row.className = 'session';
     const seconds = Math.max(0, (Date.parse(e.endedAt) - Date.parse(e.startedAt)) / 1000);
-    row.textContent = `${e.appName} · ${new Date(e.startedAt).toLocaleString()} · ${Math.round(seconds / 60)} min`;
+    row.textContent = `${e.appName} · ${new Date(e.startedAt).toLocaleString()} · ${duration(seconds)}`;
     container.append(row);
   }
 }
@@ -122,8 +135,6 @@ for (const id of ['enforcement-zone', 'schedule-enabled', 'schedule-start', 'sch
     $('message').textContent = 'Unsaved changes';
   });
 }
-const originalLoad = load;
-load = async function () { await originalLoad(); await loadActivity(); };
 
 function renderPerAppRules() {
   const container = $('per-app-rules'); container.replaceChildren();
@@ -154,13 +165,20 @@ function renderPerAppRules() {
       state.policy.overrides[app.bundleId] = new Date(Date.now() + 30 * 60000).toISOString();
       dirty = true; $('message').textContent = 'Temporary allowance pending. Save changes to apply.';
     };
-    wrap.append(heading,quota,enabled,start,end,override);
+    const field = (text, input) => {
+      const label = document.createElement('label');
+      const caption = document.createElement('span'); caption.textContent = text;
+      label.append(caption, input); return label;
+    };
+    wrap.append(heading, field('Daily minutes', quota), field('Restricted hours enabled', enabled),
+      field('Start', start), field('End', end), override);
     container.append(wrap);
   }
 }
 async function loadAlerts() {
   const data = await api('/api/admin/alerts');
   $('alerts').replaceChildren();
+  if (!data.alerts.length) { const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = 'No alerts recorded.'; $('alerts').append(empty); }
   for (const item of data.alerts) {
     const line = document.createElement('p');
     line.textContent = `${new Date(item.created).toLocaleString()} · ${item.message}`;
@@ -185,12 +203,13 @@ $('security-refresh').onclick = action(loadSecurityHealth);
 
 async function loadUsage() {
   const data = await api('/api/admin/usage');
+  usageData = data;
   $('usage-summary').textContent = 'Retaining ' + data.retentionDays +
     ' days · Time zone: ' + data.timeZone +
     ' · Website usage is sampled foreground-tab time, not exact browsing duration.';
   const root = $('usage-report');
   root.replaceChildren();
-  const format = seconds => (seconds / 60).toFixed(1) + ' min';
+  const format = duration;
   for (const [kind, items] of [['Applications', data.apps], ['Websites', data.websites]]) {
     const heading = document.createElement('h3'); heading.textContent = kind;
     root.append(heading);
@@ -219,8 +238,101 @@ async function loadUsage() {
       root.append(section);
     }
   }
+  renderUsageCharts();
 }
-$('usage-refresh').onclick = action(loadUsage);
+$('usage-refresh').onclick = action(refreshMonitoring);
+
+function updateSaveState() {
+  $('save-state').textContent = dirty ? 'Unsaved changes' : 'Settings up to date';
+}
+for (const event of ['change', 'click', 'submit']) {
+  $('controls').addEventListener(event, updateSaveState);
+}
+for (const [index, name] of tabNames.entries()) {
+  $('tab-' + name).onclick = action(async () => {
+    showTab(name);
+    if (name === 'monitoring') await refreshMonitoring();
+    if (name === 'protection') await loadSecurityHealth();
+    if (name === 'alerts') await loadAlerts();
+  });
+  $('tab-' + name).addEventListener('keydown', event => {
+    let next;
+    if (event.key === 'ArrowRight') next = (index + 1) % tabNames.length;
+    if (event.key === 'ArrowLeft') next = (index + tabNames.length - 1) % tabNames.length;
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = tabNames.length - 1;
+    if (next === undefined) return;
+    event.preventDefault();
+    // Manual activation: arrows move focus; Enter/Space opens the focused tab.
+    $('tab-' + tabNames[next]).focus();
+  });
+}
+function emptyChart(root, message) {
+  const empty = document.createElement('p'); empty.className = 'empty';
+  empty.textContent = message; root.append(empty);
+}
+function renderUsageCharts() {
+  if (!usageData) return;
+  const today = usageData.endDate;
+  if (!today) return;
+  const dates = Array.from({length: 7}, (_, i) => {
+    const date = new Date(today + 'T12:00:00Z');
+    date.setUTCDate(date.getUTCDate() - 6 + i);
+    return date.toISOString().slice(0, 10);
+  });
+  const total = (item, days) => days.reduce((sum, day) => sum + (item.days[day] || 0), 0);
+  const daily = dates.map(day => usageData.apps.reduce((sum, item) => sum + (item.days[day] || 0), 0));
+  $('today-total').textContent = duration(daily[6]);
+  $('today-date').textContent = today + ' · ' + usageData.timeZone;
+  $('week-total').textContent = duration(daily.reduce((a, b) => a + b, 0));
+  const chart = $('daily-chart'); chart.replaceChildren();
+  if (!daily.some(value => value > 0)) {
+    emptyChart(chart, 'No app time recorded in the past seven days. Start the tracker and use an app for about 30 seconds.');
+  } else {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 700 210'); svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'Daily foreground app time: ' + dates.map((day, i) => day + ': ' + duration(daily[i])).join('; '));
+    const peak = Math.max(...daily, 1);
+    const element = (tag, attributes, text) => {
+      const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
+      if (text !== undefined) node.textContent = text;
+      return node;
+    };
+    dates.forEach((day, i) => {
+      const height = daily[i] / peak * 145;
+      const bar = element('rect', {x: i * 100 + 25, y: 175 - height, width: 50, height, rx: 6});
+      bar.append(element('title', {}, day + ': ' + duration(daily[i]))); svg.append(bar);
+      svg.append(element('text', {x: i * 100 + 50, y: 165 - height, 'text-anchor': 'middle', class: 'value'}, duration(daily[i])));
+      svg.append(element('text', {x: i * 100 + 50, y: 201, 'text-anchor': 'middle'},
+        new Date(day + 'T12:00:00Z').toLocaleDateString(undefined, {weekday: 'short', day: 'numeric', timeZone: 'UTC'})));
+    });
+    chart.append(svg);
+  }
+  const days = $('usage-period').value === 'week' ? dates : [today];
+  for (const [id, items] of [['app-chart', usageData.apps], ['website-chart', usageData.websites]]) {
+    const root = $(id); root.replaceChildren();
+    const ranked = items.map(item => ({item, seconds: total(item, days)})).filter(row => row.seconds > 0).sort((a, b) => b.seconds - a.seconds);
+    if (!ranked.length) { emptyChart(root, id === 'app-chart' ? 'No app usage recorded for this period.' : 'No website usage recorded for this period. Browser extension required.'); continue; }
+    const maximum = ranked[0].seconds;
+    for (const {item, seconds} of ranked) {
+      const name = id === 'app-chart' ? appNames.get(item.id) || state?.policy?.apps.find(app => app.bundleId === item.id)?.name || item.id : item.id;
+      const row = document.createElement('div'); row.className = 'rank-row';
+      const label = document.createElement('div'); label.className = 'rank-label';
+      const title = document.createElement('span'); title.textContent = name; title.title = item.id;
+      const value = document.createElement('strong'); value.textContent = duration(seconds);
+      label.append(title, value);
+      const meter = document.createElement('meter'); meter.min = 0; meter.max = maximum; meter.value = seconds;
+      meter.setAttribute('aria-label', name + ': ' + duration(seconds));
+      row.append(label, meter); root.append(row);
+    }
+  }
+}
+$('usage-period').addEventListener('change', renderUsageCharts);
+window.setInterval(() => {
+  if (!token || activeTab !== 'monitoring' || busy || document.hidden) return;
+  void action(refreshMonitoring)();
+}, 15000);
 
 async function connectFromLink() {
   const supplied = new URLSearchParams(window.location.hash.slice(1)).get('token');

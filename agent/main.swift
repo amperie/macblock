@@ -132,6 +132,12 @@ struct Policy: Codable {
 struct Settings: Decodable {
     let serverURL: String
     let deviceToken: String
+    private enum CodingKeys: String, CodingKey { case serverURL, deviceToken }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        serverURL = try values.decodeIfPresent(String.self, forKey: .serverURL) ?? "https://orbit.side-forge.com"
+        deviceToken = try values.decode(String.self, forKey: .deviceToken)
+    }
     func validate(development: Bool = false) throws {
         guard let url = URLComponents(string: serverURL),
               url.scheme == "https" || (development && url.scheme == "http" && ["127.0.0.1", "localhost", "::1", "[::1]"].contains(url.host ?? "")),

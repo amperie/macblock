@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""IDE entry point for isolated local Orbit development (Python standard library)."""
+"""Orbit testing against the VPS by default; --local starts isolated services."""
 import argparse
 import fcntl
+import getpass
 import importlib.util
 import json
 import os
@@ -13,9 +14,16 @@ import sys
 import tempfile
 import time
 import urllib.request
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 PROJECT = Path(__file__).resolve().parents[1]
+VPS_CONFIG = PROJECT / '.dev' / 'vps.json'
+DEFAULT_SERVER = 'https://orbit.side-forge.com'
+
+
+class NoRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def write_private(path, data):
@@ -63,8 +71,47 @@ def build(directory):
     return binary
 
 
+def setup_remote(directory, config_path=VPS_CONFIG, require_tokens=True):
+    directory = Path(directory).resolve()
+    if directory == Path('/Library/Application Support/Orbit'):
+        raise ValueError('Use a development directory, separate from production')
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    config_path = Path(config_path)
+    config_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if config_path.exists():
+        config = json.loads(config_path.read_text())
+    else:
+        config = dict(serverURL=DEFAULT_SERVER, adminToken='', deviceToken='', activityToken='')
+        write_private(config_path, config)
+    config_path.chmod(0o600)
+    config.setdefault('serverURL', DEFAULT_SERVER)
+    url = urlsplit(config['serverURL'])
+    if url.scheme != 'https' or not url.hostname or url.username or url.password or url.query or url.fragment or url.path not in ('', '/'):
+        raise ValueError('VPS serverURL must be an HTTPS origin')
+    config['serverURL'] = config['serverURL'].rstrip('/')
+    if require_tokens:
+        for key in ('deviceToken', 'activityToken'):
+            token = config.get(key, '')
+            if not isinstance(token, str) or not 32 <= len(token) <= 512 or not all(33 <= ord(c) <= 126 for c in token):
+                raise ValueError(f'Missing or invalid {key} in {config_path}. Run: python3 tools/dev.py configure')
+        if len({config['deviceToken'], config['activityToken'], config.get('adminToken', '')}) != 3:
+            raise ValueError('VPS admin, device and activity tokens must be distinct')
+        agent_dir = directory / 'agent'
+        agent_dir.mkdir(exist_ok=True, mode=0o700)
+        # Prevent a previous server's policy cache being applied after a URL change.
+        old_settings = agent_dir / 'settings.json'
+        if old_settings.exists() and json.loads(old_settings.read_text()).get('serverURL') != config['serverURL']:
+            raise ValueError('Server changed; select a fresh --state-dir to avoid mixing policy caches')
+        write_private(old_settings, dict(serverURL=config['serverURL'], deviceToken=config['deviceToken']))
+        write_private(directory / 'monitor-settings.json', dict(serverURL=config['serverURL'], activityToken=config['activityToken']))
+    return directory, config
+
+
 def print_login_link(config):
-    url = f"http://127.0.0.1:{config['port']}/#token={quote(config['adminToken'], safe='')}"
+    base = config.get('serverURL') or f"http://127.0.0.1:{config['port']}"
+    url = base + '/'
+    if config.get('adminToken'):
+        url += '#token=' + quote(config['adminToken'], safe='')
     print(f"\nOpen Orbit (signed-in development link):\n{url}\n", flush=True)
 
 
@@ -121,10 +168,21 @@ def run_all(directory, config, enforce, poll_seconds):
     monitor = build_monitor(directory)
     children = []
     try:
-        server = subprocess.Popen([sys.executable, str(__file__), 'server', '--state-dir', str(directory)], start_new_session=True)
-        children.append(server)
-        request = urllib.request.Request(f"http://127.0.0.1:{config['port']}/api/device/policy", headers={'Authorization': 'Bearer ' + config['deviceToken']})
+        remote = 'serverURL' in config
+        server = None
+        if not remote:
+            server = subprocess.Popen([sys.executable, str(__file__), 'server', '--local', '--state-dir', str(directory)], start_new_session=True)
+            children.append(server)
+        base = config.get('serverURL') or f"http://127.0.0.1:{config['port']}"
+        request = urllib.request.Request(base + '/api/device/policy', headers={'Authorization': 'Bearer ' + config['deviceToken']})
+        if remote:
+            # Fail before starting enforcement when production credentials are wrong.
+            with urllib.request.build_opener(NoRedirects).open(request, timeout=10) as response:
+                json.load(response)
+            print_login_link(config)
         for _ in range(100):
+            if remote:
+                break
             if server.poll() is not None:
                 raise RuntimeError('Website failed to start; agent was not started')
             try:
@@ -139,7 +197,7 @@ def run_all(directory, config, enforce, poll_seconds):
         children.append(subprocess.Popen([str(monitor)], env=dict(os.environ,
             ORBIT_MONITOR_SETTINGS=str(directory / 'monitor-settings.json'),
             ORBIT_MONITOR_QUEUE=str(directory / 'activity-queue.json'),
-            ORBIT_MONITOR_DEVELOPMENT='1'), start_new_session=True))
+            ORBIT_MONITOR_DEVELOPMENT='0' if remote else '1'), start_new_session=True))
         while all(child.poll() is None for child in children):
             time.sleep(0.25)
         raise RuntimeError('A development process exited; stopping the other process')
@@ -163,13 +221,19 @@ def fixture(directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['setup', 'build', 'server', 'agent', 'all', 'fixture'])
-    parser.add_argument('--state-dir', type=Path, default=PROJECT / '.dev')
+    parser.add_argument('command', choices=['setup', 'configure', 'build', 'server', 'agent', 'all', 'fixture'])
+    parser.add_argument('--local', action='store_true', help='Use isolated localhost services instead of the VPS')
+    parser.add_argument('--config', type=Path, default=VPS_CONFIG, help='Private VPS JSON config (default: .dev/vps.json)')
+    parser.add_argument('--state-dir', type=Path)
     parser.add_argument('--port', type=int)
     parser.add_argument('--poll-seconds', type=float, default=3)
     parser.add_argument('--enforce', action='store_true', help='Actually terminate matching apps owned by the current user (default: dry run)')
     parser.add_argument('--no-build', action='store_true', help='Use an already-built agent')
     args = parser.parse_args()
+    if args.command == 'server' and not args.local:
+        parser.error('The VPS hosts the server. Use server --local to start a local server.')
+    if args.port is not None and not args.local:
+        parser.error('--port requires --local')
     if args.port is not None and not 1 <= args.port <= 65535:
         parser.error('--port must be between 1 and 65535')
     if not 1 <= args.poll_seconds <= 3600:
@@ -178,9 +242,23 @@ def main():
         raise KeyboardInterrupt()
     signal.signal(signal.SIGTERM, interrupted)
     try:
-        directory, config = setup(args.state_dir, args.port)
+        state_dir = args.state_dir or (PROJECT / '.dev' if args.local else PROJECT / '.dev' / 'vps')
+        if args.command == 'configure':
+            if args.local:
+                raise ValueError('configure is for VPS credentials; local credentials are generated automatically')
+            directory, config = setup_remote(state_dir, args.config, require_tokens=False)
+            for key, label in [('deviceToken', 'ORBIT_DEVICE_TOKEN'), ('activityToken', 'ORBIT_ACTIVITY_TOKEN')]:
+                value = getpass.getpass(label + ' (input hidden; Enter keeps saved value): ')
+                if value:
+                    config[key] = value
+            write_private(args.config, config)
+            setup_remote(state_dir, args.config)
+            print(f'VPS configuration saved in {args.config}')
+            return 0
+        directory, config = (setup(state_dir, args.port) if args.local else
+                             setup_remote(state_dir, args.config, require_tokens=args.command in ('all', 'agent', 'build')))
         if args.command == 'setup':
-            print(f"Local settings ready in {directory}")
+            print(f"Settings ready in {directory}; VPS config: {args.config}" if not args.local else f"Local settings ready in {directory}")
         elif args.command == 'build':
             print(build(directory))
         elif args.command == 'server':

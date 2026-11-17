@@ -6,7 +6,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ "$(uname -s)" == Darwin ]] || { echo 'Requires macOS' >&2; exit 1; }
 enforce=1
-for arg in "$@"; do case "$arg" in --no-enforce) enforce=0;; --enforce) enforce=1;; --help|-h) echo "Usage: bash dev/start.sh [--no-enforce]"; echo "Default: real app enforcement, with automatic daemon removal on exit."; exit 0;; *) echo "Unknown option: $arg" >&2; exit 2;; esac; done
+local_mode=0
+for arg in "$@"; do case "$arg" in --local) local_mode=1;; --no-enforce) enforce=0;; --enforce) enforce=1;; --help|-h) echo "Usage: bash dev/start.sh [--local] [--no-enforce]"; echo "Default: VPS-backed blocker and tracker for current user; Ctrl-C stops both. --local uses the privileged localhost workflow."; exit 0;; *) echo "Unknown option: $arg" >&2; exit 2;; esac; done
+if (( ! local_mode )); then
+  if (( enforce )); then exec python3 tools/dev.py all --enforce; fi
+  exec python3 tools/dev.py all
+fi
 command -v mkcert >/dev/null || { echo 'Install mkcert (brew install mkcert) and run mkcert -install once.' >&2; exit 1; }
 command -v swiftc >/dev/null || { echo 'Xcode Command Line Tools required' >&2; exit 1; }
 work="$PWD/.orbit-dev"

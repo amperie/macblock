@@ -4,7 +4,11 @@
 
 Remote parental controls for macOS: a Python parent dashboard and a privileged Swift agent that terminates blocked signed applications. Foreground monitoring supports usage history, schedules, quotas and temporary allowances. Chrome and Safari WebExtension integration is **experimental**.
 
-## Quick start — local Mac testing
+## Default testing — VPS
+
+Both `python3 tools/dev.py all` and `bash dev/start.sh` connect to `https://orbit.side-forge.com` by default. Edit the private, Git-ignored `.dev/vps.json` to configure `serverURL`, `adminToken`, `deviceToken`, and `activityToken`. The admin token is only for the dashboard; the other two must match the corresponding VPS credentials. Run `python3 tools/dev.py configure` to enter device/activity tokens without echoing them. VPS testing uses separate `.dev/vps/` state and starts no local server. Ctrl-C stops the blocker and tracker. The Python command defaults to dry-run; the shell command enforces blocks for the current user. This mode does not install a privileged daemon or browser extensions.
+
+## Quick start — isolated local Mac testing
 
 **Default mode enforces real blocks.** If Roblox is blocked in the dashboard, the root daemon can terminate it. Use a dedicated test Mac or account. Administrator authentication is required.
 
@@ -15,13 +19,13 @@ brew install mkcert
 mkcert -install
 git clone https://github.com/amperie/orbit.git
 cd orbit
-bash dev/start.sh
+bash dev/start.sh --local
 ```
 
 The launcher starts an HTTPS server at **https://localhost:18443/**, creates a private SQLite database and random development credentials, starts the foreground monitor, and installs the privileged daemon for actual app blocking. The terminal prints a clickable login link that signs you in automatically. It does not replace an existing Orbit daemon.
 
 ```bash
-bash dev/start.sh --no-enforce  # No root daemon; test dashboard/monitor only
+bash dev/start.sh --local --no-enforce  # No root daemon; test dashboard/monitor only
 bash dev/start.sh --help        # Show startup usage
 bash dev/test.sh                # Run Python, JavaScript and macOS Swift checks
 bash dev/browsers.sh            # Prepare local Chrome extension and Safari Xcode project
@@ -69,7 +73,7 @@ Run `server/server.py` behind an HTTPS reverse proxy bound to `127.0.0.1`, with 
 
 ## Installing on the target Mac
 
-Create `agent/settings.json` containing an HTTPS `serverURL` and `deviceToken`, then run `sudo bash agent/install.sh`. For foreground telemetry, create `agent/monitor-settings.json` with `serverURL` and `activityToken`, then run `bash agent/install-monitor.sh` as the logged-in user. These **production install scripts persist**; unlike the local development launcher, they are not automatically uninstalled.
+The agent and foreground monitor default to `https://orbit.side-forge.com` when `serverURL` is omitted. Create `agent/settings.json` containing `deviceToken`, then run `sudo bash agent/install.sh`. For foreground telemetry, create `agent/monitor-settings.json` with `activityToken`, then run `bash agent/install-monitor.sh` as the logged-in user. Both files may specify `serverURL` to override the default. Use the corresponding production tokens from the VPS; local development tokens will not authenticate. These **production install scripts persist**; unlike the local development launcher, they are not automatically uninstalled.
 
 See `browser/README.md` for managed Chrome installation and Safari signing requirements. Neither extension has been verified on the target Mac.
 
@@ -81,7 +85,7 @@ The project is currently intended for a single Mac and parent. Offline policy ca
 
 ## Run locally from an IDE
 
-This rootless workflow starts the dashboard, app blocker, and foreground app time tracker for your current user. Browser extensions still require the HTTPS launcher above.
+This rootless workflow starts the app blocker and foreground app time tracker against the VPS by default. Add `--local` to start an isolated dashboard as well. Browser extensions require separate setup.
 
 
 Requires macOS, Python 3, and Xcode Command Line Tools. No sudo, installation, VPS, or additional Python packages are needed.
@@ -92,7 +96,7 @@ Run this from the project root, or create an IDE Python run configuration for `t
 python3 tools/dev.py all
 ```
 
-Open the clickable login link printed in the IDE terminal to connect automatically at **http://127.0.0.1:8765**. This starts the website, agent, and app time tracker. The agent polls every three seconds and starts in **dry-run mode**: it logs `Would stop …` instead of killing apps. Ctrl+C stops all three processes. If any exits unexpectedly, the launcher stops the others too. App usage appears under Usage over time; click Refresh usage after about 30 seconds.
+Open the clickable VPS login link printed in the IDE terminal. The agent polls every three seconds and starts in **dry-run mode**: it logs `Would stop …` instead of killing apps. Ctrl+C stops the blocker and tracker. If either exits unexpectedly, the launcher stops the other too. App usage appears in Monitoring after about 30 seconds. For a fully local test use `python3 tools/dev.py all --local`, with a dashboard at **http://127.0.0.1:8765**.
 
 For actual app termination on your development Mac:
 
@@ -116,7 +120,7 @@ Open `Package.swift` in Xcode to debug the native agent. Run `python3 tools/dev.
 --dev --state-dir /absolute/path/to/Orbit/.dev/agent
 ```
 
-Add `--enforce` only when you want real termination. Launch the website separately with `python3 tools/dev.py server` (from the IDE terminal or a Python run configuration). For other IDEs, use that same server entry point; build the native debug executable with `python3 tools/dev.py build` and debug `.dev/orbit-agent` with the arguments above. The Swift package and direct build compile the same source.
+Add `--enforce` only when you want real termination. Launch the website separately with `python3 tools/dev.py server --local` (from the IDE terminal or a Python run configuration). For other IDEs, use that same server entry point; build the native debug executable with `python3 tools/dev.py build` and debug `.dev/vps/orbit-agent` with the arguments above. The Swift package and direct build compile the same source.
 
 ### Test without blocking your browser
 
@@ -131,8 +135,8 @@ On the website add **Orbit Test App** with identifier **org.orbit.debug.fixture*
 Stop only the website while leaving the agent running to test an outage. Restart the agent while the website remains stopped to verify cached rules. These can be run independently:
 
 ```sh
-python3 tools/dev.py server
-python3 tools/dev.py agent --enforce
+python3 tools/dev.py server --local
+python3 tools/dev.py agent --local --enforce
 ```
 
 All local credentials, database, settings, build output, and cached policy live in ignored `.dev/`, separate from production. State persists between runs; delete `.dev/` while everything is stopped to reset it. Use `--state-dir /another/local/directory` consistently on all commands for a second isolated environment. Choose a port with `--port 8766` on first setup; subsequent launches reuse it. Development permits HTTP only on loopback; production still requires HTTPS and root.

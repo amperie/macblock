@@ -7,6 +7,12 @@ import IOKit
 struct MonitorSettings: Decodable {
     let serverURL: String
     let activityToken: String
+    private enum CodingKeys: String, CodingKey { case serverURL, activityToken }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        serverURL = try values.decodeIfPresent(String.self, forKey: .serverURL) ?? "https://orbit.side-forge.com"
+        activityToken = try values.decode(String.self, forKey: .activityToken)
+    }
 }
 struct Upload: Encodable { let events: [FocusEvent]; let current: Current? }
 struct Current: Encodable { let bundleId: String; let appName: String; let since: Date }
