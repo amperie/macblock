@@ -4,10 +4,10 @@ After=network.target
 [Service]
 User=orbit
 Group=orbit
-WorkingDirectory=/opt/orbit/server
+WorkingDirectory=/opt/orbit/current/server
 EnvironmentFile=/etc/orbit.env
 Environment=ORBIT_DB=/var/lib/orbit/state.sqlite3
-ExecStart=/usr/bin/python3 /opt/orbit/server/server.py
+ExecStart=/usr/bin/python3 /opt/orbit/current/server/server.py
 Restart=on-failure
 StateDirectory=orbit
 UMask=0077

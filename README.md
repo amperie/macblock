@@ -63,6 +63,8 @@ The foreground monitor is owned by the logged-in user; its activity reports are 
 
 ## Deploying the server to a VPS
 
+See [deploy/README.md](deploy/README.md) for first-install commands and GitHub Actions automation, including database backup and failed-release rollback.
+
 Run `server/server.py` behind an HTTPS reverse proxy bound to `127.0.0.1`, with a persistent SQLite database. Set four distinct random bearer tokens of at least 32 characters: `ORBIT_ADMIN_TOKEN`, `ORBIT_DEVICE_TOKEN`, `ORBIT_ACTIVITY_TOKEN`, and `ORBIT_BROWSER_TOKEN`. Do not expose the Python server directly to the Internet. See `deploy/orbit.service` for the systemd service and `browser/README.md` for extension provisioning.
 
 ## Installing on the target Mac
