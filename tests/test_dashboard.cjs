@@ -6,6 +6,7 @@ class Element {
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
   setAttribute() {}
+  addEventListener(type, listener) { this["on" + type] = listener; }
   reset() {}
 }
 const elements = new Map();
@@ -16,21 +17,20 @@ const context = vm.createContext({document: {getElementById: get, createElement:
 vm.runInContext(fs.readFileSync('server/app.js', 'utf8'), context);
 const run = code => vm.runInContext(code, context);
 (async () => {
-  fetchImpl = async () => ({ok: true, json: async () => fresh()});
+  fetchImpl = async path => ({ok: true, json: async () => path === '/api/admin/usage' ? {apps: [], websites: [], retentionDays: 90, timeZone: 'UTC'} : fresh()});
   get('token').value = 'test-token';
   await get('connect').onclick();
-  get('domain').value = ' Instagram.COM. ';
-  await get('add-domain').onsubmit();
+  get('blocked-domains').value = 'instagram.com\ntiktok.com';
+  get('blocked-domains').onchange();
   assert.equal(run('state.policy.blockedDomains[0]'), 'instagram.com');
-  get('domains').children[0].children[1].onclick();
-  assert.equal(run('state.policy.blockedDomains.length'), 0);
+  assert.equal(run('state.policy.blockedDomains[1]'), 'tiktok.com');
   run('dirty = true; state.policy.apps[0].blocked = true');
   fetchImpl = async () => ({ok: false, json: async () => ({error: 'Settings changed. Reload before saving.'})});
   await get('save').onclick();
   assert.equal(run('dirty'), true, 'Conflict must preserve edits');
   await get('discard').onclick();
   assert.equal(run('dirty'), true, 'Failed reload must preserve edits');
-  fetchImpl = async () => ({ok: true, json: async () => fresh()});
+  fetchImpl = async path => ({ok: true, json: async () => path === '/api/admin/usage' ? {apps: [], websites: [], retentionDays: 90, timeZone: 'UTC'} : fresh()});
   await get('discard').onclick();
   assert.equal(run('dirty'), false);
   assert.equal(run('state.policy.apps[0].blocked'), false);

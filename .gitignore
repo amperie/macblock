@@ -6,3 +6,6 @@ settings.json
 .dev/
 .swiftpm/
 .DS_Store
+monitor-settings.json
+activity-queue.json
+.orbit-dev/

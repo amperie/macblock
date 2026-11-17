@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""IDE entry point for isolated local MacBlock development (Python standard library)."""
+"""IDE entry point for isolated local Orbit development (Python standard library)."""
 import argparse
 import fcntl
 import importlib.util
@@ -30,7 +30,7 @@ def write_private(path, data):
 
 def setup(directory, port=None):
     directory = Path(directory).resolve()
-    if directory == Path('/Library/Application Support/MacBlock'):
+    if directory == Path('/Library/Application Support/Orbit'):
         raise ValueError('Use a development directory, separate from production')
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     config_path = directory / 'dev.json'
@@ -44,6 +44,10 @@ def setup(directory, port=None):
         else:
             config = dict(port=port or 8765, adminToken=secrets.token_urlsafe(48), deviceToken=secrets.token_urlsafe(48))
             write_private(config_path, config)
+        for key in ('activityToken', 'browserToken'):
+            if key not in config:
+                config[key] = secrets.token_urlsafe(48)
+        write_private(config_path, config)
         agent_dir = directory / 'agent'
         agent_dir.mkdir(exist_ok=True, mode=0o700)
         write_private(agent_dir / 'settings.json', dict(serverURL=f"http://127.0.0.1:{config['port']}", deviceToken=config['deviceToken']))
@@ -51,21 +55,22 @@ def setup(directory, port=None):
 
 
 def build(directory):
-    binary = directory / 'macblock-agent'
+    binary = directory / 'orbit-agent'
     subprocess.run(['swiftc', '-g', '-Onone', '-module-cache-path', str(directory / 'modules'),
                     str(PROJECT / 'agent/main.swift'), '-framework', 'Security', '-o', str(binary)], check=True)
     return binary
 
 
 def serve(directory, config):
-    spec = importlib.util.spec_from_file_location('macblock_server', PROJECT / 'server/server.py')
+    spec = importlib.util.spec_from_file_location('orbit_server', PROJECT / 'server/server.py')
     server = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(server)
     server.DB = str(directory / 'server.sqlite3')
     server.ADMIN, server.DEVICE = config['adminToken'], config['deviceToken']
+    server.ACTIVITY, server.BROWSER = config['activityToken'], config['browserToken']
     server.init_db()
     http = server.ThreadingHTTPServer(('127.0.0.1', config['port']), server.Handler)
-    print(f"\nMacBlock DEVELOPMENT website: http://127.0.0.1:{config['port']}", flush=True)
+    print(f"\nOrbit DEVELOPMENT website: http://127.0.0.1:{config['port']}", flush=True)
     print(f"Parent access token (local development only): {config['adminToken']}", flush=True)
     print(f"State: {directory}\n", flush=True)
     try:
@@ -75,7 +80,7 @@ def serve(directory, config):
 
 
 def agent_command(directory, enforce=False, poll_seconds=3):
-    command = [str(directory / 'macblock-agent'), '--dev', '--state-dir', str(directory / 'agent'), '--poll-seconds', str(poll_seconds)]
+    command = [str(directory / 'orbit-agent'), '--dev', '--state-dir', str(directory / 'agent'), '--poll-seconds', str(poll_seconds)]
     return command + (['--enforce'] if enforce else [])
 
 
@@ -127,10 +132,10 @@ def fixture(directory):
     # A unique non-system identity, intentionally safe to terminate.
     source = directory / 'fixture.c'
     source.write_text('#include <unistd.h>\nint main(void) { for (;;) sleep(1); }\n')
-    binary = directory / 'MacBlock-Test-App'
+    binary = directory / 'Orbit-Test-App'
     subprocess.run(['clang', '-g', str(source), '-o', str(binary)], check=True)
-    subprocess.run(['codesign', '--force', '--sign', '-', '--identifier', 'org.macblock.debug.fixture', str(binary)], check=True)
-    print('Add an app on the website: name = MacBlock Test App, identifier = org.macblock.debug.fixture', flush=True)
+    subprocess.run(['codesign', '--force', '--sign', '-', '--identifier', 'org.orbit.debug.fixture', str(binary)], check=True)
+    print('Add an app on the website: name = Orbit Test App, identifier = org.orbit.debug.fixture', flush=True)
     print('Block it, save, and watch it exit. With dry run it keeps running and the agent logs what it would stop.', flush=True)
     # exec makes IDE stop/Ctrl+C act directly on the fixture.
     os.execv(str(binary), [str(binary)])
@@ -163,7 +168,7 @@ def main():
         elif args.command == 'agent':
             if not args.no_build:
                 build(directory)
-            os.execv(str(directory / 'macblock-agent'), agent_command(directory, args.enforce, args.poll_seconds))
+            os.execv(str(directory / 'orbit-agent'), agent_command(directory, args.enforce, args.poll_seconds))
         elif args.command == 'all':
             run_all(directory, config, args.enforce, args.poll_seconds)
         else:
@@ -171,7 +176,7 @@ def main():
     except KeyboardInterrupt:
         print('\nDevelopment processes stopped.')
     except (ValueError, OSError, RuntimeError, subprocess.CalledProcessError) as error:
-        print(f'MacBlock dev: {error}', file=sys.stderr)
+        print(f'Orbit dev: {error}', file=sys.stderr)
         return 1
     return 0
 

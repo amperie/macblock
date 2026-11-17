@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "MacBlock: website",
+      "name": "Orbit: website",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/tools/dev.py",
@@ -14,23 +14,23 @@
       "justMyCode": true
     },
     {
-      "name": "MacBlock: agent (dry run)",
+      "name": "Orbit: agent (dry run)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/.dev/macblock-agent",
+      "program": "${workspaceFolder}/.dev/orbit-agent",
       "args": [
         "--dev",
         "--state-dir",
         "${workspaceFolder}/.dev/agent"
       ],
       "cwd": "${workspaceFolder}",
-      "preLaunchTask": "MacBlock: build debug agent"
+      "preLaunchTask": "Orbit: build debug agent"
     },
     {
-      "name": "MacBlock: agent (enforce)",
+      "name": "Orbit: agent (enforce)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/.dev/macblock-agent",
+      "program": "${workspaceFolder}/.dev/orbit-agent",
       "args": [
         "--dev",
         "--enforce",
@@ -38,31 +38,31 @@
         "${workspaceFolder}/.dev/agent"
       ],
       "cwd": "${workspaceFolder}",
-      "preLaunchTask": "MacBlock: build debug agent"
+      "preLaunchTask": "Orbit: build debug agent"
     },
     {
       "type": "swift",
       "request": "launch",
       "args": [],
-      "cwd": "${workspaceFolder:MacBlock}",
-      "name": "Debug macblock-agent",
-      "target": "macblock-agent",
+      "cwd": "${workspaceFolder}",
+      "name": "Debug orbit-agent",
+      "target": "orbit-agent",
       "configuration": "debug",
-      "preLaunchTask": "swift: Build Debug macblock-agent"
+      "preLaunchTask": "swift: Build Debug orbit-agent"
     },
     {
       "type": "swift",
       "request": "launch",
       "args": [],
-      "cwd": "${workspaceFolder:MacBlock}",
-      "name": "Release macblock-agent",
-      "target": "macblock-agent",
+      "cwd": "${workspaceFolder}",
+      "name": "Release orbit-agent",
+      "target": "orbit-agent",
       "configuration": "release",
-      "preLaunchTask": "swift: Build Release macblock-agent"
+      "preLaunchTask": "swift: Build Release orbit-agent"
     }
   ],
   "compounds": [
-    {"name": "MacBlock: website + agent (dry run)", "configurations": ["MacBlock: website", "MacBlock: agent (dry run)"], "stopAll": true},
-    {"name": "MacBlock: website + agent (enforce)", "configurations": ["MacBlock: website", "MacBlock: agent (enforce)"], "stopAll": true}
+    {"name": "Orbit: website + agent (dry run)", "configurations": ["Orbit: website", "Orbit: agent (dry run)"], "stopAll": true},
+    {"name": "Orbit: website + agent (enforce)", "configurations": ["Orbit: website", "Orbit: agent (enforce)"], "stopAll": true}
   ]
 }

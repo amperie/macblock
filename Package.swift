@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "MacBlock",
+    name: "Orbit",
     platforms: [.macOS(.v13)],
-    products: [.executable(name: "macblock-agent", targets: ["MacBlockAgent"])],
+    products: [.executable(name: "orbit-agent", targets: ["OrbitAgent"])],
     targets: [.executableTarget(
-        name: "MacBlockAgent",
+        name: "OrbitAgent",
         path: "agent",
-        exclude: ["install.sh", "com.macblock.agent.plist"],
+        exclude: ["install.sh", "install-monitor.sh", "com.side-forge.orbit.agent.plist", "com.side-forge.orbit.foreground.plist", "FocusTracker.swift", "ForegroundMonitor.swift"],
         sources: ["main.swift"],
         linkerSettings: [.linkedFramework("Security")]
     )]

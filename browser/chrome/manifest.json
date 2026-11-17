@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Orbit Website Filter (experimental)",
+  "version": "0.1.0",
+  "description": "Blocks parent-configured sites in supported Chromium browsers.",
+  "permissions": [
+    "declarativeNetRequest",
+    "storage",
+    "alarms",
+    "tabs",
+    "idle"
+  ],
+  "host_permissions": [
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Orbit"
+  },
+  "storage": {
+    "managed_schema": "managed_schema.json"
+  }
+}

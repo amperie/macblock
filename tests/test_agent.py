@@ -18,7 +18,7 @@ class AgentValidationTests(unittest.TestCase):
 
         # Exercise the production enforcement function without installing a daemon.
         harness = Path(cls.tmp.name) / 'main.swift'
-        source = Path('agent/main.swift').read_text().split('if ["--check-policy", "--check-settings"].contains')[0]
+        source = Path('agent/main.swift').read_text().split('if CommandLine.arguments.contains("--check-schedule")')[0]
         harness.write_text(source + '\nlet p = try decoder.decode(Policy.self, from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))\ntry p.validate()\nprint(enforce(p))\n')
         cls.harness = str(Path(cls.tmp.name) / 'enforce-once')
         subprocess.run(['swiftc', '-module-cache-path', str(Path(cls.tmp.name) / 'modules'),
@@ -53,7 +53,7 @@ class AgentValidationTests(unittest.TestCase):
         (state / 'settings.json').write_text(json.dumps(dict(serverURL='http://example.com', deviceToken='a' * 40)))
         result = subprocess.run([self.binary, '--dev', '--state-dir', str(state)], capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 1)
-        self.assertIn('Invalid or missing MacBlock settings', result.stderr)
+        self.assertIn('Invalid or missing Orbit settings', result.stderr)
 
     def test_policy_validation(self):
         base = dict(schemaVersion=1, revision=1, apps=[])
@@ -71,7 +71,7 @@ class AgentValidationTests(unittest.TestCase):
             self.check('--check-policy', dict(base, blockedDomains=domains), False)
 
     def test_signed_renamed_process_is_killed_only_when_blocked(self):
-        identifier = 'org.macblocktest.fixture.' + uuid.uuid4().hex
+        identifier = 'org.orbittest.fixture.' + uuid.uuid4().hex
         source = Path(self.tmp.name) / 'fixture.c'
         source.write_text('#include <unistd.h>\nint main(void) { for (;;) sleep(1); }\n')
         fixture = Path(self.tmp.name) / 'renamed-application'

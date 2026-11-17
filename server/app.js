@@ -7,6 +7,29 @@ async function api(path, body) {
   return data;
 }
 function render() {
+  if (!dirty) $('blocked-domains').value = (state.policy.blockedDomains || []).join('\n');
+  const zone = $('enforcement-zone');
+  zone.replaceChildren();
+  for (const id of state.timeZones || ['America/Los_Angeles']) {
+    const option = document.createElement('option'); option.value = id;
+    option.textContent = id.replaceAll('_', ' '); zone.append(option);
+  }
+  zone.value = state.policy.enforcementTimeZone || 'America/Los_Angeles';
+  const schedule = state.policy.schedule || {enabled:false,start:'21:00',end:'07:00'};
+  $('schedule-enabled').checked = schedule.enabled;
+  const quota = state.policy.quota || {enabled:false,bundleId:'com.roblox.RobloxPlayer',minutes:60};
+  const appSelect = $('quota-app'); appSelect.replaceChildren();
+  for (const app of state.policy.apps) {
+    const option = document.createElement('option'); option.value = app.bundleId;
+    option.textContent = app.name; appSelect.append(option);
+  }
+  appSelect.value = quota.bundleId;
+  $('quota-enabled').checked = quota.enabled;
+  $('quota-minutes').value = quota.minutes;
+  const usage = state.quotaState;
+  $('quota-status').textContent = usage ? `Today: ${Math.floor(usage.usedSeconds / 60)} / ${quota.minutes} min · ${usage.exceeded ? 'Limit reached' : usage.monitoringFresh ? 'Monitoring connected' : 'Monitoring unavailable'}` : '';
+  $('schedule-start').value = schedule.start;
+  $('schedule-end').value = schedule.end;
   $('apps').replaceChildren();
   for (const app of state.policy.apps) {
     const row = document.createElement('div'); row.className = 'app';
@@ -19,21 +42,15 @@ function render() {
     toggle.onchange = () => { app.blocked = toggle.checked; dirty = true; caption.textContent = app.blocked ? 'Blocked' : 'Allowed'; $('message').textContent = 'Unsaved changes'; };
     label.append(toggle, caption);
     const remove = document.createElement('button'); remove.textContent = 'Remove'; remove.className = 'secondary'; remove.setAttribute('aria-label', `Remove ${app.name}`);
-    remove.onclick = () => { state.policy.apps = state.policy.apps.filter(a => a !== app); dirty = true; render(); $('message').textContent = 'Unsaved changes'; };
+    remove.onclick = () => {
+      state.policy.apps = state.policy.apps.filter(a => a !== app);
+      if (state.policy.appRules) delete state.policy.appRules[app.bundleId];
+      if (state.policy.overrides) delete state.policy.overrides[app.bundleId];
+      if (state.policy.quota?.bundleId === app.bundleId) state.policy.quota.enabled = false;
+      dirty = true; render(); $('message').textContent = 'Unsaved changes'; };
     row.append(text, label, remove); $('apps').append(row);
   }
-  $('domains').replaceChildren();
-  for (const domain of state.policy.blockedDomains ?? []) {
-    const row = document.createElement('div'); row.className = 'app';
-    const name = document.createElement('strong'); name.textContent = domain;
-    const remove = document.createElement('button'); remove.textContent = 'Remove'; remove.className = 'secondary';
-    remove.setAttribute('aria-label', `Remove ${domain}`);
-    remove.onclick = () => {
-      state.policy.blockedDomains = state.policy.blockedDomains.filter(host => host !== domain);
-      dirty = true; render(); $('message').textContent = 'Unsaved changes';
-    };
-    row.append(name, remove); $('domains').append(row);
-  }
+  renderPerAppRules();
   const device = state.device;
   const age = device ? Date.now() - Date.parse(device.lastSeen) : Infinity;
   $('status').textContent = !device ? 'Waiting for the Mac to connect' : `${age > 300000 ? 'Mac offline or overdue' : 'Mac connected'} · Last seen ${new Date(device.lastSeen).toLocaleString()} · ${device.report.revision === state.policy.revision ? 'Settings received' : 'Update pending'} (revision ${device.report.revision}/${state.policy.revision}) · Agent ${device.report.agentVersion}`;
@@ -44,12 +61,12 @@ function action(fn) { return async event => {
   event?.preventDefault();
   if (busy) return;
   busy = true;
-  const disable = value => document.querySelectorAll('button, input').forEach(element => { element.disabled = value; });
+  const disable = value => document.querySelectorAll('button, input, select, textarea').forEach(element => { element.disabled = value; });
   disable(true); $('message').textContent = '';
   try { await fn(); } catch (error) { $('message').textContent = error.message; }
   finally { busy = false; disable(false); }
 }; }
-$('connect').onclick = action(async () => { token = $('token').value; await load(); $('token').value = ''; });
+$('connect').onclick = action(async () => { token = $('token').value; await load(); $('token').value = ''; await loadUsage(); });
 $('refresh').onclick = action(load);
 $('discard').onclick = action(async () => {
   // Do not drop edits until the replacement state has arrived successfully.
@@ -57,20 +74,150 @@ $('discard').onclick = action(async () => {
   state = fresh; dirty = false; render();
 });
 $('save').onclick = action(async () => { state.policy = await api('/api/admin/policy', state.policy); dirty = false; render(); $('message').textContent = 'Saved. Waiting for the Mac to receive these settings.'; });
-$('add-domain').onsubmit = action(async () => {
-  const input = $('domain').value.trim();
-  const host = input.toLowerCase().replace(/\.$/, '');
-  const labels = host.split('.');
-  const tld = labels.at(-1);
-  if (!/^[\x00-\x7f]+$/.test(input) || host.length > 253 || labels.length < 2 || !/[a-z]/.test(tld) || /^0x[0-9a-f]+$/.test(tld) ||
-      !labels.every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) {
-    throw Error('Enter a domain name, such as instagram.com.');
-  }
-  const domains = state.policy.blockedDomains ?? [];
-  if (domains.includes(host)) throw Error('That domain is already listed.');
-  if (domains.length >= 100) throw Error('At most 100 domains can be configured.');
-  state.policy.blockedDomains = [...domains, host].sort();
-  dirty = true; render(); $('add-domain').reset(); $('message').textContent = 'Domain added. Save changes to send it to the Mac.';
-});
-$('add').onsubmit = action(async () => { const name = $('name').value.trim(), bundleId = $('bundle').value.trim(); if (!name || name.length > 80) throw Error('Enter an app name of at most 80 characters.'); if (state.policy.apps.length >= 100) throw Error('At most 100 apps can be configured.'); if (bundleId.length > 255) throw Error('Bundle identifier is too long.'); if (!/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(bundleId) || /^(com\.apple\.|com\.macblock\.)/i.test(bundleId)) throw Error('Use a non-system app bundle identifier.'); if (state.policy.apps.some(a => a.bundleId === bundleId)) throw Error('That app is already listed.'); state.policy.apps.push({name, bundleId, blocked: false}); dirty = true; render(); $('add').reset(); $('message').textContent = 'App added. Save changes to send it to the Mac.'; });
+$('add').onsubmit = action(async () => { const name = $('name').value.trim(), bundleId = $('bundle').value.trim(); if (!name || name.length > 80) throw Error('Enter an app name of at most 80 characters.'); if (state.policy.apps.length >= 100) throw Error('At most 100 apps can be configured.'); if (bundleId.length > 255) throw Error('Bundle identifier is too long.'); if (!/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(bundleId) || /^(com\.apple\.|com\.side-forge\.orbit\.)/i.test(bundleId)) throw Error('Use a non-system app bundle identifier.'); if (state.policy.apps.some(a => a.bundleId === bundleId)) throw Error('That app is already listed.'); state.policy.apps.push({name, bundleId, blocked: false}); dirty = true; render(); $('add').reset(); $('message').textContent = 'App added. Save changes to send it to the Mac.'; });
 window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
+
+async function loadActivity() {
+  const data = await api('/api/admin/activity');
+  const last = data.lastSeen ? Date.parse(data.lastSeen) : 0;
+  const fresh = last && Date.now() - last < 120000;
+  $('activity-current').textContent = fresh && data.current
+    ? `Foreground: ${data.current.appName} (since ${new Date(data.current.since).toLocaleTimeString()})`
+    : data.lastSeen ? `No current activity confirmed · Last update ${new Date(data.lastSeen).toLocaleString()}` : 'No activity reported';
+  const container = $('activity-events');
+  container.replaceChildren();
+  const totals = new Map();
+  const now = new Date();
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+  for (const e of data.events) {
+    if (Date.parse(e.endedAt) < dayStart || Date.parse(e.startedAt) >= dayEnd) continue;
+    const seconds = Math.max(0, (Math.min(Date.parse(e.endedAt), dayEnd) - Math.max(Date.parse(e.startedAt), dayStart)) / 1000);
+    totals.set(e.appName, (totals.get(e.appName) || 0) + seconds);
+  }
+  const summary = document.createElement('p');
+  summary.textContent = [...totals.entries()].sort((a,b) => b[1] - a[1]).slice(0, 5)
+    .map(([name, seconds]) => `${name}: ${Math.round(seconds / 60)}m`).join(' · ') || 'No completed sessions';
+  summary.prepend(document.createTextNode('Today (completed sessions): '));
+  container.append(summary);
+  for (const e of data.events.slice(0, 50)) {
+    const row = document.createElement('div');
+    row.className = 'app';
+    const seconds = Math.max(0, (Date.parse(e.endedAt) - Date.parse(e.startedAt)) / 1000);
+    row.textContent = `${e.appName} · ${new Date(e.startedAt).toLocaleString()} · ${Math.round(seconds / 60)} min`;
+    container.append(row);
+  }
+}
+$('activity-refresh').onclick = action(loadActivity);
+for (const id of ['enforcement-zone', 'schedule-enabled', 'schedule-start', 'schedule-end', 'quota-enabled', 'quota-app', 'quota-minutes']) {
+  $(id).addEventListener('change', () => {
+    state.policy.enforcementTimeZone = $('enforcement-zone').value;
+    state.policy.schedule = {
+      enabled: $('schedule-enabled').checked,
+      start: $('schedule-start').value,
+      end: $('schedule-end').value
+    };
+    state.policy.quota = {enabled: $('quota-enabled').checked, bundleId: $('quota-app').value, minutes: Number($('quota-minutes').value)};
+    dirty = true;
+    $('message').textContent = 'Unsaved changes';
+  });
+}
+const originalLoad = load;
+load = async function () { await originalLoad(); await loadActivity(); };
+
+function renderPerAppRules() {
+  const container = $('per-app-rules'); container.replaceChildren();
+  state.policy.appRules ||= {};
+  state.policy.overrides ||= {};
+  for (const app of state.policy.apps) {
+    const rule = state.policy.appRules[app.bundleId] || {schedule:{enabled:false,start:'21:00',end:'07:00'},minutes:null};
+    const wrap = document.createElement('div'); wrap.className = 'app';
+    const heading = document.createElement('strong'); heading.textContent = app.name;
+    const quota = document.createElement('input'); quota.type = 'number'; quota.min = 1; quota.max = 1440;
+    quota.placeholder = 'No daily limit'; quota.value = rule.minutes ?? '';
+    quota.setAttribute('aria-label', app.name + ' daily minutes');
+    const enabled = document.createElement('input'); enabled.type = 'checkbox'; enabled.checked = rule.schedule.enabled;
+    enabled.setAttribute('aria-label', app.name + ' schedule enabled');
+    const start = document.createElement('input'); start.type = 'time'; start.value = rule.schedule.start;
+    const end = document.createElement('input'); end.type = 'time'; end.value = rule.schedule.end;
+    const override = document.createElement('button'); override.type = 'button'; override.className = 'secondary';
+    override.textContent = 'Allow 30 min';
+    const markDirty = () => {
+      state.policy.appRules[app.bundleId] = {
+        schedule:{enabled:enabled.checked,start:start.value,end:end.value},
+        minutes:quota.value === '' ? null : Number(quota.value)
+      };
+      dirty = true; $('message').textContent = 'Unsaved changes';
+    };
+    for (const field of [quota,enabled,start,end]) field.addEventListener('change',markDirty);
+    override.onclick = () => {
+      state.policy.overrides[app.bundleId] = new Date(Date.now() + 30 * 60000).toISOString();
+      dirty = true; $('message').textContent = 'Temporary allowance pending. Save changes to apply.';
+    };
+    wrap.append(heading,quota,enabled,start,end,override);
+    container.append(wrap);
+  }
+}
+async function loadAlerts() {
+  const data = await api('/api/admin/alerts');
+  $('alerts').replaceChildren();
+  for (const item of data.alerts) {
+    const line = document.createElement('p');
+    line.textContent = `${new Date(item.created).toLocaleString()} · ${item.message}`;
+    $('alerts').append(line);
+  }
+}
+$('alerts-refresh').onclick = action(loadAlerts);
+
+$('blocked-domains').addEventListener('change', () => {
+  state.policy.blockedDomains = [...new Set($('blocked-domains').value.split(/\r?\n/).map(s => s.trim().toLowerCase()).filter(Boolean))];
+  dirty = true; $('message').textContent = 'Unsaved changes';
+});
+
+async function loadSecurityHealth() {
+  const result = await api('/api/admin/health');
+  $('security-health').textContent =
+    'Daemon: ' + (result.deviceConnected ? 'recently connected' : 'not recently connected') +
+    ' · Foreground monitor: ' + (result.monitorConnected ? 'recently connected' : 'not recently connected') +
+    ' · Browser filtering: ' + (result.browserProtectionVerified ? 'verified' : 'NOT VERIFIED');
+}
+$('security-refresh').onclick = action(loadSecurityHealth);
+
+async function loadUsage() {
+  const data = await api('/api/admin/usage');
+  $('usage-summary').textContent = 'Retaining ' + data.retentionDays +
+    ' days · Time zone: ' + data.timeZone +
+    ' · Website usage is sampled foreground-tab time, not exact browsing duration.';
+  const root = $('usage-report');
+  root.replaceChildren();
+  const format = seconds => (seconds / 60).toFixed(1) + ' min';
+  for (const [kind, items] of [['Applications', data.apps], ['Websites', data.websites]]) {
+    const heading = document.createElement('h3'); heading.textContent = kind;
+    root.append(heading);
+    if (!items.length) {
+      const empty = document.createElement('p');
+      empty.textContent = 'No usage recorded yet'; root.append(empty);
+    }
+    for (const item of items) {
+      const section = document.createElement('details');
+      const title = document.createElement('summary');
+      const name = kind === 'Applications' ? (state?.policy?.apps || []).find(a => a.bundleId === item.id)?.name : null;
+      title.textContent = (name ? name + ' (' + item.id + ')' : item.id) + ' · ' +
+        format(Object.values(item.days).reduce((a,b)=>a+b,0)) + ' total';
+      section.append(title);
+      for (const [label, values] of [['Daily', item.days], ['Weekly (Monday start)', item.weeks]]) {
+        const h = document.createElement('strong'); h.textContent = label;
+        section.append(h);
+        const list = document.createElement('ul');
+        for (const [date, seconds] of Object.entries(values).sort((a,b)=>b[0].localeCompare(a[0]))) {
+          const li = document.createElement('li');
+          li.textContent = date + ': ' + format(seconds);
+          list.append(li);
+        }
+        section.append(list);
+      }
+      root.append(section);
+    }
+  }
+}
+$('usage-refresh').onclick = action(loadUsage);
