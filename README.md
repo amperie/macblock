@@ -73,6 +73,10 @@ Run `server/server.py` behind an HTTPS reverse proxy bound to `127.0.0.1`, with 
 
 ## Installing on the target Mac
 
+Download **Orbit-Installer.zip** from [repository Releases](https://github.com/amperie/orbit/releases), extract the whole bundle, and open **Install Orbit.command** while logged into the target user's desktop. It prompts for device/activity tokens and administrator authorization, installs both components, and starts them. No developer tools are needed on the target Mac. Supports macOS 13+, Intel and Apple Silicon. The basic package is unsigned/not notarized, so macOS may require explicit approval. Browser extensions are separate. GitHub's **Build Mac installer** workflow publishes a download after successful main-branch macOS CI, or can be run manually. To build locally: `bash packaging/build.sh`. Installer details are in `packaging/README.txt`.
+
+### Source installation (alternative)
+
 The agent and foreground monitor default to `https://orbit.side-forge.com` when `serverURL` is omitted. Create `agent/settings.json` containing `deviceToken`, then run `sudo bash agent/install.sh`. For foreground telemetry, create `agent/monitor-settings.json` with `activityToken`, then run `bash agent/install-monitor.sh` as the logged-in user. Both files may specify `serverURL` to override the default. Use the corresponding production tokens from the VPS; local development tokens will not authenticate. These **production install scripts persist**; unlike the local development launcher, they are not automatically uninstalled.
 
 See `browser/README.md` for managed Chrome installation and Safari signing requirements. Neither extension has been verified on the target Mac.

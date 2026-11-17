@@ -1,0 +1,55 @@
+name: Build Mac installer
+
+on:
+  workflow_run:
+    workflows: [macOS CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orbit-mac-installer
+  cancel-in-progress: false
+
+jobs:
+  package:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: macos-15
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - name: Validate packaging and settings
+        run: |
+          bash -n packaging/build.sh packaging/Install-Orbit.command
+          PYTHONPATH=tests python3 -m unittest test_agent.AgentValidationTests.test_settings_validation_before_install test_monitor.MonitorSettingsTests test_packaging -v
+      - name: Build universal package
+        run: bash packaging/build.sh "1.0.${GITHUB_RUN_NUMBER}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Orbit-Mac-Installer
+          path: dist/Orbit-Installer.zip*
+      - name: Publish download in repository Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          revision=$(git rev-parse HEAD)
+          tag="agent-${revision:0:12}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --target "$revision" \
+              --title "Orbit Mac installer (${revision:0:12})" \
+              --notes-file packaging/README.txt --latest=false
+          fi
+          gh release upload "$tag" dist/Orbit-Installer.zip dist/Orbit-Installer.zip.sha256 --clobber
