@@ -77,6 +77,8 @@ Download **Orbit-Installer.zip** from [repository Releases](https://github.com/a
 
 ### Source installation (alternative)
 
+To uninstall the package or source installation, open **Uninstall Orbit.command** in the installer download. It requests administrator authorization, removes services for all local users, and offers to keep or delete local settings and cached data. VPS history and browser extensions remain. New installations also include `/usr/local/libexec/orbit-uninstall --prompt`.
+
 The agent and foreground monitor default to `https://orbit.side-forge.com` when `serverURL` is omitted. Create `agent/settings.json` containing `deviceToken`, then run `sudo bash agent/install.sh`. For foreground telemetry, create `agent/monitor-settings.json` with `activityToken`, then run `bash agent/install-monitor.sh` as the logged-in user. Both files may specify `serverURL` to override the default. Use the corresponding production tokens from the VPS; local development tokens will not authenticate. These **production install scripts persist**; unlike the local development launcher, they are not automatically uninstalled.
 
 See `browser/README.md` for managed Chrome installation and Safari signing requirements. Neither extension has been verified on the target Mac.

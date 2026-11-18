@@ -184,6 +184,27 @@ func configure(_ username: String) throws {
 
 func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 
+func stagePackage(_ source: URL, in directory: URL) throws -> URL {
+    let fm = FileManager.default
+    let source = source.standardizedFileURL.resolvingSymlinksInPath()
+    let values = try source.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+    guard values.isRegularFile == true, (values.fileSize ?? 0) > 0 else {
+        throw SetupError.message("Orbit.pkg is missing or empty. Extract the entire installer ZIP first.")
+    }
+    let staged = directory.appendingPathComponent("Orbit.pkg")
+    try fm.copyItem(at: source, to: staged)
+    try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: staged.path)
+    let expanded = directory.appendingPathComponent("package-check")
+    do {
+        // Read-only validation, before asking for tokens or administrator access.
+        try run("/usr/sbin/pkgutil", ["--expand", staged.path, expanded.path], capture: true)
+        try fm.removeItem(at: expanded)
+    } catch {
+        throw SetupError.message("Orbit.pkg is not a readable installer package. Download the installer ZIP again and extract the entire folder.")
+    }
+    return staged
+}
+
 func install(_ package: String) throws {
     guard getuid() >= 501, let user = getpwuid(getuid()) else {
         throw SetupError.message("Run Install Orbit.command from the target user's desktop, without sudo")
@@ -192,6 +213,12 @@ func install(_ package: String) throws {
     let console = try run("/usr/bin/stat", ["-f", "%Su", "/dev/console"], capture: true)
     guard console == username else { throw SetupError.message("Log into the account whose app usage should be tracked") }
     guard FileManager.default.fileExists(atPath: package) else { throw SetupError.message("Orbit.pkg is missing; extract the entire download first") }
+    // Avoid Downloads/Desktop privacy restrictions when the elevated Installer
+    // reads the package. Keep the package and credentials private until cleanup.
+    let directory = URL(fileURLWithPath: "/private/tmp", isDirectory: true).appendingPathComponent("orbit-setup-" + UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stagedPackage = try stagePackage(URL(fileURLWithPath: package), in: directory)
     func prompt(_ label: String) throws -> String {
         try run("/usr/bin/osascript", ["-e", "text returned of (display dialog \"\(label)\" default answer \"\" with hidden answer buttons {\"Cancel\", \"Continue\"} default button \"Continue\" with title \"Orbit setup\")"], capture: true)
     }
@@ -199,13 +226,10 @@ func install(_ package: String) throws {
                                   deviceToken: try prompt("Enter the VPS DEVICE token (not the admin token)"),
                                   activityToken: try prompt("Enter the VPS ACTIVITY token"))
     try credentials.validate()
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-setup-" + UUID().uuidString)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-    defer { try? FileManager.default.removeItem(at: directory) }
     let file = directory.appendingPathComponent("credentials.json")
     try JSONEncoder().encode(credentials).write(to: file, options: .atomic)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-    let command = "/usr/sbin/installer -pkg " + shellQuote(package) + " -target / && /usr/local/libexec/orbit-setup --configure " + shellQuote(username) + " < " + shellQuote(file.path)
+    let command = "/usr/sbin/installer -pkg " + shellQuote(stagedPackage.path) + " -target / && /usr/local/libexec/orbit-setup --configure " + shellQuote(username) + " < " + shellQuote(file.path)
     // Pass the command as argv, not interpolated AppleScript. macOS requests
     // administrator credentials even when the console user is a standard user.
     let script = "on run argv\ndo shell script (item 1 of argv) with administrator privileges\nend run"

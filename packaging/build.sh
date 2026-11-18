@@ -25,10 +25,13 @@ for arch in arm64 x86_64; do
     agent/FocusTracker.swift agent/ForegroundMonitor.swift -framework AppKit -framework IOKit -o "$work/monitor-$arch"
   swiftc -O -target "$arch-apple-macos13.0" -sdk "$sdk" -module-cache-path "$cache" \
     packaging/Setup.swift -o "$work/setup-$arch"
+  swiftc -O -target "$arch-apple-macos13.0" -sdk "$sdk" -module-cache-path "$cache" \
+    packaging/Uninstall.swift -o "$work/uninstall-$arch"
 done
 lipo -create "$work/agent-arm64" "$work/agent-x86_64" -output "$payload/Library/PrivilegedHelperTools/orbit-agent"
 lipo -create "$work/monitor-arm64" "$work/monitor-x86_64" -output "$payload/usr/local/libexec/orbit-foreground"
 lipo -create "$work/setup-arm64" "$work/setup-x86_64" -output "$payload/usr/local/libexec/orbit-setup"
+lipo -create "$work/uninstall-arm64" "$work/uninstall-x86_64" -output "$payload/usr/local/libexec/orbit-uninstall"
 for binary in "$payload/Library/PrivilegedHelperTools/orbit-agent" "$payload/usr/local/libexec/"*; do
   chmod 755 "$binary"
   codesign --force --sign - "$binary"
@@ -40,9 +43,11 @@ chmod 644 "$payload/Library/LaunchDaemons/"*.plist
 pkgbuild --root "$payload" --ownership recommended --install-location / \
   --identifier com.side-forge.orbit.installer --version "$version" "$bundle/Orbit.pkg"
 cp "$payload/usr/local/libexec/orbit-setup" "$bundle/OrbitSetup"
+cp "$payload/usr/local/libexec/orbit-uninstall" "$bundle/OrbitUninstall"
 cp packaging/Install-Orbit.command "$bundle/Install Orbit.command"
+cp packaging/Uninstall-Orbit.command "$bundle/Uninstall Orbit.command"
 cp packaging/README.txt "$bundle/README.txt"
-chmod 755 "$bundle/OrbitSetup" "$bundle/Install Orbit.command"
+chmod 755 "$bundle/OrbitSetup" "$bundle/OrbitUninstall" "$bundle/Install Orbit.command" "$bundle/Uninstall Orbit.command"
 ditto -c -k --keepParent "$bundle" "$output/Orbit-Installer.zip"
 (cd "$output" && shasum -a 256 Orbit-Installer.zip > Orbit-Installer.zip.sha256)
 echo "Created $output/Orbit-Installer.zip"

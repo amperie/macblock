@@ -32,7 +32,7 @@ jobs:
           persist-credentials: false
       - name: Validate packaging and settings
         run: |
-          bash -n packaging/build.sh packaging/Install-Orbit.command
+          bash -n packaging/build.sh packaging/Install-Orbit.command packaging/Uninstall-Orbit.command
           PYTHONPATH=tests python3 -m unittest test_agent.AgentValidationTests.test_settings_validation_before_install test_monitor.MonitorSettingsTests test_packaging -v
       - name: Build universal package
         run: bash packaging/build.sh "1.0.${GITHUB_RUN_NUMBER}"

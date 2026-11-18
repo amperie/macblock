@@ -19,7 +19,7 @@ class InstallerSetupTests(unittest.TestCase):
 
         source = Path('packaging/Setup.swift').read_text().split('umask(0o077)')[0]
         harness = Path(cls.temporary.name) / 'main.swift'
-        harness.write_text(source + '\ndo {\n    if CommandLine.arguments[1] == "monitor-payload" {\n        let credentials = try readInput()\n        let data = try JSONEncoder().encode(MonitorCredentials(serverURL: credentials.serverURL, activityToken: credentials.activityToken))\n        FileHandle.standardOutput.write(data)\n    } else {\n        try checkExistingConfiguration(settings: URL(fileURLWithPath: CommandLine.arguments[1]), cache: URL(fileURLWithPath: CommandLine.arguments[2]), serverURL: CommandLine.arguments[3])\n    }\n} catch { exit(1) }\n')
+        harness.write_text(source + '\ndo {\n    if CommandLine.arguments[1] == "monitor-payload" {\n        let credentials = try readInput()\n        let data = try JSONEncoder().encode(MonitorCredentials(serverURL: credentials.serverURL, activityToken: credentials.activityToken))\n        FileHandle.standardOutput.write(data)\n    } else if CommandLine.arguments[1] == "stage-package" {\n        let staged = try stagePackage(URL(fileURLWithPath: CommandLine.arguments[2]), in: URL(fileURLWithPath: CommandLine.arguments[3]))\n        print(staged.path)\n    } else if CommandLine.arguments[1] == "quote" {\n        print(try run("/bin/sh", ["-c", "printf \'%s\' " + shellQuote(CommandLine.arguments[2])], capture: true))\n    } else {\n        try checkExistingConfiguration(settings: URL(fileURLWithPath: CommandLine.arguments[1]), cache: URL(fileURLWithPath: CommandLine.arguments[2]), serverURL: CommandLine.arguments[3])\n    }\n} catch { exit(1) }\n')
         cls.harness = str(Path(cls.temporary.name) / 'setup-check')
         subprocess.run(['swiftc', '-module-cache-path', str(Path(cls.temporary.name) / 'cache'),
                         str(harness), '-o', cls.harness], check=True, capture_output=True)
@@ -99,6 +99,94 @@ class InstallerSetupTests(unittest.TestCase):
             settings.write_text(json.dumps(dict(serverURL='https://ORBIT.side-forge.com:443/', deviceToken='d' * 40)))
             check(0)
 
+    def test_stages_and_validates_package_from_path_with_spaces_and_apostrophe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "Parent's Downloads"
+            source.mkdir()
+            payload = Path(directory) / 'payload'
+            payload.mkdir()
+            (payload / 'fixture.txt').write_text('Installer staging regression fixture')
+            package = source / 'Orbit.pkg'
+            subprocess.run(['/usr/bin/pkgbuild', '--root', str(payload), '--identifier', 'com.side-forge.orbit.test', '--version', '1.0', str(package)], check=True, capture_output=True)
+            staging = Path(directory) / 'staging'
+            staging.mkdir(mode=0o700)
+            result = subprocess.run([self.harness, 'stage-package', str(package), str(staging)], check=True, capture_output=True, text=True)
+            staged = Path(result.stdout.strip())
+            self.assertEqual(staged, staging / 'Orbit.pkg')
+            self.assertEqual(staged.read_bytes(), package.read_bytes())
+            self.assertEqual(staged.stat().st_mode & 0o777, 0o600)
+            self.assertFalse((staging / 'package-check').exists())
+
+    def test_invalid_package_is_rejected_before_provisioning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / 'broken.pkg'
+            package.write_text('Not a package')
+            staging = Path(directory) / 'staging'
+            staging.mkdir()
+            result = subprocess.run([self.harness, 'stage-package', str(package), str(staging)], capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_elevated_command_path_quoting(self):
+        path = "/tmp/Parent's Folder/Orbit.pkg"
+        result = subprocess.run([self.harness, 'quote', path], check=True, capture_output=True, text=True)
+        self.assertEqual(result.stdout.strip(), path)
+
+
+@unittest.skipUnless(sys.platform == 'darwin' and shutil.which('swiftc'), 'Requires macOS and Swift')
+class UninstallerTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary = tempfile.TemporaryDirectory()
+        root = Path(cls.temporary.name)
+        cls.binary = str(root / 'uninstall')
+        subprocess.run(['swiftc', '-module-cache-path', str(root / 'cache'),
+                        'packaging/Uninstall.swift', '-o', cls.binary], check=True, capture_output=True)
+        source = Path('packaging/Uninstall.swift').read_text().split('do {\n    let args = Array(CommandLine.arguments.dropFirst())')[0]
+        harness = root / 'main.swift'
+        harness.write_text(source + '\ndo { try removeFile(CommandLine.arguments[1]) } catch { exit(1) }\n')
+        cls.harness = str(root / 'remove-file')
+        subprocess.run(['swiftc', '-module-cache-path', str(root / 'cache'), str(harness), '-o', cls.harness],
+                       check=True, capture_output=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temporary.cleanup()
+
+    def test_uninstall_requires_admin_before_any_changes(self):
+        if os.getuid() == 0:
+            self.skipTest('Requires unprivileged caller')
+        for args in [['--remove'], ['--remove', '--purge']]:
+            result = subprocess.run([self.binary, *args], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn('administrator authorization', result.stderr)
+
+    def test_default_plan_preserves_credentials_and_queue(self):
+        def plan(*args):
+            return json.loads(subprocess.check_output([self.binary, '--plan', *args], text=True))
+        keep, purge = plan(), plan('--purge')
+        self.assertFalse(keep['purgeLocalData'])
+        self.assertFalse(keep['touchesVPS'])
+        self.assertTrue(purge['purgeLocalData'])
+        self.assertTrue(set(keep['userFiles']) < set(purge['userFiles']))
+        self.assertFalse(any(path.endswith('monitor-settings.json') for path in keep['userFiles']))
+        self.assertTrue(any(path.endswith('monitor-settings.json') for path in purge['userFiles']))
+        self.assertTrue(all('/Orbit/' in path or '/LaunchAgents/com.side-forge.orbit.' in path for path in purge['userFiles']))
+
+    def test_file_removal_does_not_follow_symlinks_or_remove_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / 'keep.txt'
+            target.write_text('preserve')
+            link = root / 'link'
+            link.symlink_to(target)
+            subprocess.run([self.harness, str(link)], check=True)
+            self.assertFalse(link.is_symlink())
+            self.assertEqual(target.read_text(), 'preserve')
+            subprocess.run([self.harness, str(link)], check=True)  # Idempotent.
+            result = subprocess.run([self.harness, directory])
+            self.assertEqual(result.returncode, 1)
+            self.assertTrue(target.exists())
+
 
 @unittest.skipUnless(sys.platform == 'darwin' and os.environ.get('ORBIT_TEST_PACKAGE'), 'Set ORBIT_TEST_PACKAGE to verify a built installer')
 class PackagePayloadTests(unittest.TestCase):
@@ -113,13 +201,13 @@ class PackagePayloadTests(unittest.TestCase):
             extracted = Path(directory) / 'extracted'
             subprocess.run(['/usr/bin/ditto', '-x', '-k', str(archive), str(extracted)], check=True, capture_output=True)
             bundle = extracted / 'Orbit-Installer'
-            self.assertEqual({path.name for path in bundle.iterdir()}, {'Orbit.pkg', 'OrbitSetup', 'Install Orbit.command', 'README.txt'})
+            self.assertEqual({path.name for path in bundle.iterdir()}, {'Orbit.pkg', 'OrbitSetup', 'OrbitUninstall', 'Install Orbit.command', 'Uninstall Orbit.command', 'README.txt'})
             expanded = Path(directory) / 'expanded'
             subprocess.run(['/usr/sbin/pkgutil', '--expand-full', str(bundle / 'Orbit.pkg'), str(expanded)], check=True, capture_output=True)
             payload = expanded / 'Payload'
             for name in ['Library', 'Library/PrivilegedHelperTools', 'Library/LaunchDaemons', 'usr', 'usr/local', 'usr/local/libexec']:
                 self.assertEqual((payload / name).stat().st_mode & 0o777, 0o755, name)
-            for name in ['Library/PrivilegedHelperTools/orbit-agent', 'usr/local/libexec/orbit-foreground', 'usr/local/libexec/orbit-setup']:
+            for name in ['Library/PrivilegedHelperTools/orbit-agent', 'usr/local/libexec/orbit-foreground', 'usr/local/libexec/orbit-setup', 'usr/local/libexec/orbit-uninstall']:
                 binary = payload / name
                 self.assertEqual(binary.stat().st_mode & 0o777, 0o755)
                 subprocess.run(['/usr/bin/lipo', str(binary), '-verify_arch', 'arm64', 'x86_64'], check=True, capture_output=True)
