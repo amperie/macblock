@@ -51,3 +51,12 @@ class MonitorSettingsTests(unittest.TestCase):
                 env = dict(os.environ, ORBIT_MONITOR_DEVELOPMENT='1' if development else '0')
                 result = subprocess.run([str(self.binary), str(settings), str(directory / 'queue.json')], env=env, capture_output=True)
                 self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_invalid_activity_credentials_are_rejected(self):
+        directory = Path(self.tmp.name)
+        settings = directory / 'settings.json'
+        for value in ['short', 'a' * 513, 'a' * 40 + '\n', 'a' * 40 + ' ', 'é' * 40]:
+            with self.subTest(length=len(value)):
+                settings.write_text(json.dumps(dict(serverURL='https://example.com', activityToken=value)))
+                result = subprocess.run([str(self.binary), str(settings), str(directory / 'queue.json')], capture_output=True)
+                self.assertEqual(result.returncode, 1)

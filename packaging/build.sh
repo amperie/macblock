@@ -1,6 +1,9 @@
 #!/bin/bash
 # Build an unsigned universal installer bundle. No credentials are packaged.
 set -euo pipefail
+# The monitor runs as a standard user and must be able to traverse payload dirs.
+# Do not let a builder's private umask turn /usr/local/libexec into mode 700.
+umask 022
 cd "$(dirname "$0")/.."
 [[ $(uname -s) == Darwin ]] || { echo 'Build on macOS' >&2; exit 1; }
 version=${1:-1.0.0}
@@ -41,5 +44,5 @@ cp packaging/Install-Orbit.command "$bundle/Install Orbit.command"
 cp packaging/README.txt "$bundle/README.txt"
 chmod 755 "$bundle/OrbitSetup" "$bundle/Install Orbit.command"
 ditto -c -k --keepParent "$bundle" "$output/Orbit-Installer.zip"
-shasum -a 256 "$output/Orbit-Installer.zip" > "$output/Orbit-Installer.zip.sha256"
+(cd "$output" && shasum -a 256 Orbit-Installer.zip > Orbit-Installer.zip.sha256)
 echo "Created $output/Orbit-Installer.zip"

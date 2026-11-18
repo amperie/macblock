@@ -15,6 +15,54 @@ struct Credentials: Codable {
               }) else { throw SetupError.message("Invalid server or tokens. Use distinct device and activity tokens from the VPS.") }
     }
 }
+// The user-owned monitor must never receive the privileged daemon token.
+struct MonitorCredentials: Codable {
+    let serverURL: String
+    let activityToken: String
+    func validate() throws {
+        guard let url = URLComponents(string: serverURL), url.scheme == "https",
+              let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
+              url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/",
+              (32...512).contains(activityToken.utf8.count),
+              activityToken.utf8.allSatisfy({ (33...126).contains($0) }) else {
+            throw SetupError.message("Invalid monitor server or activity token")
+        }
+    }
+}
+
+func origin(_ value: String) throws -> String {
+    guard var url = URLComponents(string: value), url.scheme == "https",
+          let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
+          url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/" else {
+        throw SetupError.message("Invalid configured server origin")
+    }
+    url.host = host.lowercased()
+    url.path = ""
+    if url.port == 443 { url.port = nil }
+    guard let result = url.string else { throw SetupError.message("Invalid configured server origin") }
+    return result
+}
+
+func checkExistingConfiguration(settings: URL, cache: URL, serverURL: String) throws {
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: settings.path) else {
+        if fm.fileExists(atPath: cache.path) {
+            throw SetupError.message("Cached policy has no server settings. Review it before reconfiguration.")
+        }
+        return
+    }
+    let data = try Data(contentsOf: settings)
+    guard let object = try JSONSerialization.jsonObject(with: data) as? [String: String],
+          let token = object["deviceToken"], (32...512).contains(token.utf8.count),
+          token.utf8.allSatisfy({ (33...126).contains($0) }) else {
+        throw SetupError.message("Existing Orbit settings are invalid; review them before reconfiguration")
+    }
+    let previous = object["serverURL"] ?? "https://orbit.side-forge.com"
+    guard try origin(previous) == origin(serverURL) else {
+        throw SetupError.message("This Mac is configured for another server. Review its cached policy before switching servers.")
+    }
+}
+
 enum SetupError: Error { case message(String) }
 
 @discardableResult
@@ -46,10 +94,24 @@ func privateJSON(_ object: [String: String], at path: String) throws {
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
 }
 
+func readInputData() throws -> Data {
+    var data = Data()
+    while true {
+        let chunk = FileHandle.standardInput.readData(ofLength: min(4096, 8193 - data.count))
+        if chunk.isEmpty { return data }
+        data.append(chunk)
+        guard data.count <= 8192 else { throw SetupError.message("Credential input too large") }
+    }
+}
+
 func readInput() throws -> Credentials {
-    let data = FileHandle.standardInput.readData(ofLength: 8193)
-    guard data.count <= 8192 else { throw SetupError.message("Credential input too large") }
-    let credentials = try JSONDecoder().decode(Credentials.self, from: data)
+    let credentials = try JSONDecoder().decode(Credentials.self, from: readInputData())
+    try credentials.validate()
+    return credentials
+}
+
+func readMonitorInput() throws -> MonitorCredentials {
+    let credentials = try JSONDecoder().decode(MonitorCredentials.self, from: readInputData())
     try credentials.validate()
     return credentials
 }
@@ -58,7 +120,7 @@ func monitorSetup() throws {
     guard getuid() >= 501, let user = getpwuid(getuid()) else {
         throw SetupError.message("Tracker setup must run as the target user")
     }
-    let credentials = try readInput()
+    let credentials = try readMonitorInput()
     let home = String(cString: user.pointee.pw_dir)
     let fm = FileManager.default
     let directory = home + "/Library/Application Support/Orbit"
@@ -76,8 +138,12 @@ func monitorSetup() throws {
     try data.write(to: URL(fileURLWithPath: plist), options: .atomic)
     try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: plist)
     let domain = "gui/\(getuid())"
-    _ = try? run("/bin/launchctl", ["bootout", domain + "/" + label])
+    if (try? run("/bin/launchctl", ["print", domain + "/" + label], capture: true)) != nil {
+        try run("/bin/launchctl", ["bootout", domain + "/" + label])
+    }
+    try run("/bin/launchctl", ["enable", domain + "/" + label])
     try run("/bin/launchctl", ["bootstrap", domain, plist])
+    try run("/bin/launchctl", ["kickstart", domain + "/" + label])
 }
 
 func configure(_ username: String) throws {
@@ -100,17 +166,18 @@ func configure(_ username: String) throws {
         try fm.createDirectory(atPath: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     }
     let settings = directory + "/settings.json"
-    // Do not reuse another server's cached policy on a reconfiguration.
-    if let old = try? Data(contentsOf: URL(fileURLWithPath: settings)),
-       let object = try? JSONSerialization.jsonObject(with: old) as? [String: String],
-       (object["serverURL"] ?? "https://orbit.side-forge.com").trimmingCharacters(in: CharacterSet(charactersIn: "/")) != credentials.serverURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
-        throw SetupError.message("This Mac is configured for another server. Review its cached policy before switching servers.")
-    }
+    // Refuse stale-policy reuse even if the old settings are missing or corrupt.
+    try checkExistingConfiguration(settings: URL(fileURLWithPath: settings),
+        cache: URL(fileURLWithPath: directory + "/policy.json"), serverURL: credentials.serverURL)
     try privateJSON(["serverURL": credentials.serverURL, "deviceToken": credentials.deviceToken], at: settings)
-    _ = try? run("/bin/launchctl", ["bootout", "system/com.side-forge.orbit.agent"])
+    if (try? run("/bin/launchctl", ["print", "system/com.side-forge.orbit.agent"], capture: true)) != nil {
+        try run("/bin/launchctl", ["bootout", "system/com.side-forge.orbit.agent"])
+    }
+    try run("/bin/launchctl", ["enable", "system/com.side-forge.orbit.agent"])
     try run("/bin/launchctl", ["bootstrap", "system", "/Library/LaunchDaemons/com.side-forge.orbit.agent.plist"])
+    try run("/bin/launchctl", ["kickstart", "system/com.side-forge.orbit.agent"])
     // Drop privileges before writing anything in the target user's home.
-    let data = try JSONEncoder().encode(credentials)
+    let data = try JSONEncoder().encode(MonitorCredentials(serverURL: credentials.serverURL, activityToken: credentials.activityToken))
     try run("/bin/launchctl", ["asuser", String(uid), "/usr/bin/sudo", "-H", "-u", username,
         "/usr/local/libexec/orbit-setup", "--monitor-user"], input: data)
 }
@@ -143,7 +210,7 @@ func install(_ package: String) throws {
     // administrator credentials even when the console user is a standard user.
     let script = "on run argv\ndo shell script (item 1 of argv) with administrator privileges\nend run"
     try run("/usr/bin/osascript", ["-e", script, command])
-    print("Orbit installed for \(username). Blocking and app tracking are running.")
+    print("Orbit services installed for \(username). Confirm both connect in the dashboard.")
     try run("/usr/bin/open", ["https://orbit.side-forge.com"])
 }
 
@@ -153,6 +220,7 @@ do {
     if args.count == 3 && args[1] == "--install" { try install(args[2]) }
     else if args.count == 3 && args[1] == "--configure" { try configure(args[2]) }
     else if args.count == 2 && args[1] == "--monitor-user" { try monitorSetup() }
+    else if args.count == 2 && args[1] == "--check-monitor-input" { _ = try readMonitorInput(); print("Monitor credentials valid") }
     else if args.count == 2 && args[1] == "--check-input" { _ = try readInput(); print("Credentials valid") }
     else { throw SetupError.message("Use Install Orbit.command from the downloaded bundle") }
 } catch SetupError.message(let message) {

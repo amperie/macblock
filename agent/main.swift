@@ -7,6 +7,9 @@ struct Schedule: Codable {
     let start: String
     let end: String
     func validate() throws {
+        let pattern = #"\A(?:[01][0-9]|2[0-3]):[0-5][0-9]\z"#
+        guard start.range(of: pattern, options: .regularExpression) != nil,
+              end.range(of: pattern, options: .regularExpression) != nil else { throw Failure.invalidPolicy }
         func minutes(_ value: String) -> Int? {
             let parts = value.split(separator: ":", omittingEmptySubsequences: false)
             guard parts.count == 2, parts[0].count == 2, parts[1].count == 2,
@@ -147,6 +150,14 @@ struct Settings: Decodable {
               deviceToken.utf8.allSatisfy({ $0 >= 33 && $0 <= 126 }) else { throw Failure.invalidSettings }
     }
     var baseURL: String { serverURL.hasSuffix("/") ? String(serverURL.dropLast()) : serverURL }
+    var canonicalOrigin: String {
+        // Used only after validate() has established a complete HTTPS origin.
+        var url = URLComponents(string: serverURL)!
+        url.host = url.host?.lowercased()
+        url.path = ""
+        if url.port == 443 { url.port = nil }
+        return url.string!
+    }
 }
 enum Failure: Error { case invalidPolicy, invalidSettings, serverRejected, timeout, rollback }
 let decoder = JSONDecoder()
@@ -226,8 +237,8 @@ func request(_ settings: Settings, _ path: String, body: Data? = nil) throws -> 
     return try box.result!.get()
 }
 
-func enforce(_ policy: Policy?, development: Bool = false, dryRun: Bool = false) -> String {
-    guard let policy = policy else { return "" }
+func blockedAppIdentifiers(_ policy: Policy?) -> Set<String> {
+    guard let policy = policy else { return [] }
     policyLock.lock()
     let scheduleBlocked: Bool
     if let schedule = policy.schedule, schedule.enabled {
@@ -268,7 +279,7 @@ func enforce(_ policy: Policy?, development: Bool = false, dryRun: Bool = false)
         if let until = policy.overrides?[app.bundleId],
            let expiration = trustedFormatter.date(from: until),
            let now = now, now < expiration { return false }
-        let perAppSchedule = policy.appSchedules?[app.bundleId]
+        let perAppSchedule = policy.appRules?[app.bundleId]?.schedule ?? policy.appSchedules?[app.bundleId]
         let appScheduled: Bool
         if let rule = perAppSchedule, rule.enabled {
             appScheduled = (now != nil && zone != nil) ? rule.isBlocked(at: now!, zone: zone!) : true
@@ -290,6 +301,11 @@ func enforce(_ policy: Policy?, development: Bool = false, dryRun: Bool = false)
             (quotaBlocked && app.bundleId == policy.quota?.bundleId)
     }.map { $0.bundleId })
     policyLock.unlock()
+    return blocked
+}
+
+func enforce(_ policy: Policy?, development: Bool = false, dryRun: Bool = false) -> String {
+    let blocked = blockedAppIdentifiers(policy)
     guard !blocked.isEmpty else { return "" }
     var errorMessage = ""
     let task = Process(); task.executableURL = URL(fileURLWithPath: "/bin/ps")
@@ -333,7 +349,7 @@ if CommandLine.arguments.contains("--check-schedule") {
     print(schedule.isBlocked(at: date, zone: zone) ? "blocked" : "allowed")
     exit(0)
 }
-if ["--check-policy", "--check-settings"].contains(CommandLine.arguments.dropFirst().first ?? "") {
+if ["--check-policy", "--check-settings", "--print-server-origin"].contains(CommandLine.arguments.dropFirst().first ?? "") {
     do {
         guard CommandLine.arguments.count == 3 else { throw Failure.invalidSettings }
         let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2]))
@@ -343,6 +359,9 @@ if ["--check-policy", "--check-settings"].contains(CommandLine.arguments.dropFir
             try policy.validate(); print("Valid policy, revision \(policy.revision)")
         case "--check-settings":
             try decoder.decode(Settings.self, from: data).validate(); print("Valid settings")
+        case "--print-server-origin":
+            let settings = try decoder.decode(Settings.self, from: data)
+            try settings.validate(); print(settings.canonicalOrigin)
         default: throw Failure.invalidSettings
         }
         exit(0)

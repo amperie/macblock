@@ -13,6 +13,15 @@ struct MonitorSettings: Decodable {
         serverURL = try values.decodeIfPresent(String.self, forKey: .serverURL) ?? "https://orbit.side-forge.com"
         activityToken = try values.decode(String.self, forKey: .activityToken)
     }
+    func validate(development: Bool = false) throws {
+        guard let url = URL(string: serverURL),
+              url.scheme == "https" || (development && url.scheme == "http" && ["127.0.0.1", "localhost", "::1", "[::1]"].contains(url.host ?? "")),
+              let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
+              url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/",
+              (32...512).contains(activityToken.utf8.count),
+              activityToken.utf8.allSatisfy({ (33...126).contains($0) })
+        else { throw NSError(domain: "Orbit", code: 1) }
+    }
 }
 struct Upload: Encodable { let events: [FocusEvent]; let current: Current? }
 struct Current: Encodable { let bundleId: String; let appName: String; let since: Date }
@@ -46,12 +55,7 @@ final class ForegroundMonitor {
             pending = (try? decoder.decode([FocusEvent].self, from: data)) ?? []
         }
         let development = ProcessInfo.processInfo.environment["ORBIT_MONITOR_DEVELOPMENT"] == "1"
-        guard let url = URL(string: settings.serverURL),
-              url.scheme == "https" || (development && url.scheme == "http" && ["127.0.0.1", "localhost", "::1", "[::1]"].contains(url.host ?? "")),
-              url.host != nil, url.user == nil, url.password == nil,
-              url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/",
-              settings.activityToken.count >= 32
-        else { throw NSError(domain: "Orbit", code: 1) }
+        try settings.validate(development: development)
     }
 
     func start() {
@@ -64,6 +68,7 @@ final class ForegroundMonitor {
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
             center.addObserver(self, selector: #selector(resumed(_:)), name: name, object: nil)
         }
+        idle = idleSeconds() >= 300
         recordFrontmost()
         flush()
         print("[Orbit] App time tracker started (foreground apps; pauses after 5 minutes idle)")
@@ -164,6 +169,18 @@ final class ForegroundMonitor {
 @main
 struct MonitorMain {
     static func main() {
+        umask(0o077)
+        if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--check-settings" {
+            do {
+                let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2]))
+                try JSONDecoder().decode(MonitorSettings.self, from: data).validate()
+                print("Valid monitor settings")
+                return
+            } catch {
+                fputs("Invalid monitor settings.\n", stderr)
+                exit(1)
+            }
+        }
         let home = FileManager.default.homeDirectoryForCurrentUser
         let directory = home.appendingPathComponent("Library/Application Support/Orbit", isDirectory: true)
         do {
@@ -173,7 +190,7 @@ struct MonitorMain {
             try FileManager.default.createDirectory(at: queueURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let monitor = try ForegroundMonitor(settings: settings, queueURL: queueURL)
             monitor.start()
-            RunLoop.main.run()
+            withExtendedLifetime(monitor) { RunLoop.main.run() }
         } catch {
             fputs("Orbit monitor setup failed: \(error)\n", stderr)
             exit(1)
