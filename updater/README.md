@@ -6,7 +6,8 @@ extensions are not downloaded or rewritten by an automatic update.
 
 The installer includes an hourly root LaunchDaemon. It is loaded only when an
 administrator has provisioned a pinned Ed25519 public key. Builds without a key
-leave automatic installation disabled. One manual installation is necessary.
+leave automatic installation disabled, including an explicit launchd override
+that prevents the service from loading on reboot. One manual installation is necessary.
 This feature needs the real-Mac acceptance checks below before broad rollout.
 
 ## Release signing and first enrollment
@@ -27,7 +28,9 @@ settings add:
 
 The existing installer workflow passes its monotonically increasing run number
 as `ORBIT_UPDATE_SEQUENCE`, signs the manifest, and publishes binaries under the
-commit-specific release. The `agent-updates` release holds the rolling manifest
+commit-specific release with unique names per build attempt. Re-running a build
+cannot replace binaries referenced by an earlier signed manifest. Only a build
+for the current main commit may publish the automatic-update feed. The `agent-updates` release holds the rolling manifest
 and detached signature. A transient mismatch while the two feed assets are being
 published is rejected and retried on the next check. Failed sequences are not
 retried automatically after rollback; publish a higher sequence with the fix.
@@ -57,15 +60,18 @@ If a previous build created a disabled configuration, enable the new bootstrap
 configuration explicitly after installing a correctly keyed package:
 
 ```bash
-sudo cp /usr/local/share/orbit/update-bootstrap.json \
+sudo cp '/Library/Application Support/OrbitUpdates/bootstrap/update-bootstrap.json' \
   '/Library/Application Support/OrbitUpdates/config.json'
 sudo chmod 600 '/Library/Application Support/OrbitUpdates/config.json'
-sudo /usr/local/libexec/orbit-updater --setup
+sudo /Library/PrivilegedHelperTools/orbit-updater --setup
+sudo launchctl enable system/com.side-forge.orbit.updater
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.side-forge.orbit.updater.plist
 ```
 
 ## Installation and recovery
 
+* System commands have execution deadlines and output limits so a hung tool
+  cannot hold the updater lock forever. Health polling uses monotonic time.
 * Downloads use bounded HTTPS-only requests, including redirects. The manifest
   is at most 16 KiB and each binary at most 20 MB.
 * The pinned key verifies the exact manifest bytes before any manifest field is
@@ -73,20 +79,42 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/com.side-forge.orbit.upda
   universal binaries must pass code-signature and architecture checks.
 * No archive is extracted and no release-provided command or path is executed.
   Only the two fixed binary destinations are replaceable.
+* The root updater lives in `/Library/PrivilegedHelperTools`; bootstrap trust
+  metadata lives in the private `OrbitUpdates/bootstrap` directory. Every
+  ancestor of root-trusted files and binary destinations must be a root-owned,
+  non-writable directory, not a symlink. Updates refuse unsafe `/usr/local`
+  layouts rather than trusting only the immediate parent directory.
 * Root-owned private staging, a lock, same-filesystem atomic replacements,
   synced backups, and a durable journal protect installation. On the next run
   after an interrupted update, recovery happens **before** any network access.
 * A new agent must successfully upload status and each previously running,
   bundled monitor must successfully upload activity within three minutes.
   Receipts must match the new build version, live process ID, and installation
-  start time. User-session monitor receipts are operational checks, not
+  start time plus a 15-second startup window. The same healthy process IDs
+  must then remain stable across another 15-second monotonic observation window;
+  a restart, new session, failed probe, or sampling gap over 10 seconds resets
+  that window. Receipts older than 120 seconds cannot satisfy the gate. User-session monitor receipts are operational checks, not
   tamper-proof attestations. Source-installed user-owned monitors are excluded.
+* Before activation, staged bytes are checked again against the signed manifest.
+  The journal records SHA-256 hashes of the original binaries; recovery validates
+  both backups before restoring either. A corrupt or incomplete pair is preserved
+  for administrator review rather than performing a partial restore. Pre-release
+  journals lacking hashes must be recovered with the previous updater before
+  upgrading. The installer refuses an unfinished legacy update if only the old
+  `/usr/local` updater exists; it never automatically executes that legacy path.
 * A failed update restores both binaries, restarts their services, and records
   the rejected sequence. If recovery itself fails, the journal remains for retry.
+  Cleanup interrupted after a completed rollback resumes deletion without
+  re-reading already deleted backups. Lock descriptors are close-on-exec and
+  restricted to private single-link regular files. Running bundled monitors
+  are re-enumerated for restart and health checks, including new GUI logins.
   Logged-out monitors use the installed binary on their next login.
 * The updater does not update itself. Updating its trust model or service layout
   requires a manual installer. Manual installation and uninstall first stop the
-  updater and recover an unfinished transaction.
+  updater and recover an unfinished transaction. If no transaction exists,
+  recovery-only mode does not load updater state, allowing uninstall/manual
+  repair even if that state is corrupt. Normal update checks still fail closed
+  on corrupt state and never reset the anti-rollback record automatically.
 
 Logs: `/var/log/orbit-updater.log`. State and recovery data:
 `/Library/Application Support/OrbitUpdates`. Uninstall removes the updater
@@ -95,7 +123,7 @@ be erased casually during reinstall or rollback.
 
 To disable checks, stop the service and change `enabled` to `false` in the
 root-owned `config.json`. To check now, run
-`sudo /usr/local/libexec/orbit-updater --once`. A restart of the Mac is not
+`sudo /Library/PrivilegedHelperTools/orbit-updater --once`. A restart of the Mac is not
 normally required. Automatic updates do not prompt for existing Orbit tokens.
 
 ## Required real-Mac acceptance tests

@@ -19,7 +19,7 @@ class InstallerSetupTests(unittest.TestCase):
 
         source = Path('packaging/Setup.swift').read_text().split('umask(0o077)')[0]
         harness = Path(cls.temporary.name) / 'main.swift'
-        harness.write_text(source + '\ndo {\n    if CommandLine.arguments[1] == "monitor-payload" {\n        let credentials = try readInput()\n        let data = try JSONEncoder().encode(MonitorCredentials(serverURL: credentials.serverURL, activityToken: credentials.activityToken))\n        FileHandle.standardOutput.write(data)\n    } else if CommandLine.arguments[1] == "stage-package" {\n        let staged = try stagePackage(URL(fileURLWithPath: CommandLine.arguments[2]), in: URL(fileURLWithPath: CommandLine.arguments[3]))\n        print(staged.path)\n    } else if CommandLine.arguments[1] == "quote" {\n        print(try run("/bin/sh", ["-c", "printf \'%s\' " + shellQuote(CommandLine.arguments[2])], capture: true))\n    } else {\n        try checkExistingConfiguration(settings: URL(fileURLWithPath: CommandLine.arguments[1]), cache: URL(fileURLWithPath: CommandLine.arguments[2]), serverURL: CommandLine.arguments[3])\n    }\n} catch { exit(1) }\n')
+        harness.write_text(source + '\ndo {\n    if CommandLine.arguments[1] == "updater-plan" {\n        var calls: [[String]] = []\n        try startUpdater { path, arguments, _ in\n            calls.append([path] + arguments)\n            return arguments == ["--setup"] ? CommandLine.arguments[2] : ""\n        }\n        print(String(data: try JSONSerialization.data(withJSONObject: calls), encoding: .utf8)!)\n    } else if CommandLine.arguments[1] == "monitor-payload" {\n        let credentials = try readInput()\n        let data = try JSONEncoder().encode(MonitorCredentials(serverURL: credentials.serverURL, activityToken: credentials.activityToken))\n        FileHandle.standardOutput.write(data)\n    } else if CommandLine.arguments[1] == "stage-package" {\n        let staged = try stagePackage(URL(fileURLWithPath: CommandLine.arguments[2]), in: URL(fileURLWithPath: CommandLine.arguments[3]))\n        print(staged.path)\n    } else if CommandLine.arguments[1] == "quote" {\n        print(try run("/bin/sh", ["-c", "printf \'%s\' " + shellQuote(CommandLine.arguments[2])], capture: true))\n    } else {\n        try checkExistingConfiguration(settings: URL(fileURLWithPath: CommandLine.arguments[1]), cache: URL(fileURLWithPath: CommandLine.arguments[2]), serverURL: CommandLine.arguments[3])\n    }\n} catch { exit(1) }\n')
         cls.harness = str(Path(cls.temporary.name) / 'setup-check')
         subprocess.run(['swiftc', '-module-cache-path', str(Path(cls.temporary.name) / 'cache'),
                         str(harness), '-o', cls.harness], check=True, capture_output=True)
@@ -116,6 +116,14 @@ do {
             self.assertEqual(set(saved()), {'extensionID', 'browserToken'})
             (directory / 'Orbit-Chrome.mobileconfig').write_bytes(b'corrupt')
             self.assertEqual(saved(), {})
+
+    def test_disabled_updater_stays_disabled_after_reboot(self):
+        for enabled in [True,False]:
+            result = subprocess.check_output([self.harness,'updater-plan','enabled' if enabled else 'disabled'],text=True)
+            calls = json.loads(result.splitlines()[-1])
+            self.assertEqual(calls[0],['/Library/PrivilegedHelperTools/orbit-updater','--setup'])
+            actions = [call[1] for call in calls[1:]]
+            self.assertEqual(actions,['enable','bootstrap'] if enabled else ['disable'])
 
     def test_configuration_rejects_unprivileged_caller(self):
         import os
@@ -337,7 +345,7 @@ class PackagePayloadTests(unittest.TestCase):
             payload = expanded / 'Payload'
             for name in ['Library', 'Library/PrivilegedHelperTools', 'Library/LaunchDaemons', 'usr', 'usr/local', 'usr/local/libexec']:
                 self.assertEqual((payload / name).stat().st_mode & 0o777, 0o755, name)
-            for name in ['Library/PrivilegedHelperTools/orbit-agent', 'usr/local/libexec/orbit-foreground', 'usr/local/libexec/orbit-setup', 'usr/local/libexec/orbit-uninstall', 'usr/local/libexec/orbit-updater']:
+            for name in ['Library/PrivilegedHelperTools/orbit-agent', 'usr/local/libexec/orbit-foreground', 'usr/local/libexec/orbit-setup', 'usr/local/libexec/orbit-uninstall', 'Library/PrivilegedHelperTools/orbit-updater']:
                 binary = payload / name
                 self.assertEqual(binary.stat().st_mode & 0o777, 0o755)
                 subprocess.run(['/usr/bin/lipo', str(binary), '-verify_arch', 'arm64', 'x86_64'], check=True, capture_output=True)
@@ -351,11 +359,14 @@ class PackagePayloadTests(unittest.TestCase):
             self.assertFalse(list(payload.rglob('*settings.json')))
             updater = plistlib.loads((payload / 'Library/LaunchDaemons/com.side-forge.orbit.updater.plist').read_bytes())
             self.assertEqual(updater['StartInterval'], 3600)
-            self.assertEqual(updater['ProgramArguments'], ['/usr/local/libexec/orbit-updater', '--once'])
+            self.assertEqual(updater['ProgramArguments'], ['/Library/PrivilegedHelperTools/orbit-updater', '--once'])
             self.assertTrue(updater['RunAtLoad'])
             self.assertNotIn('KeepAlive', updater)
-            baseline = json.loads((payload / 'usr/local/share/orbit/installed-version.json').read_text())
-            bootstrap = json.loads((payload / 'usr/local/share/orbit/update-bootstrap.json').read_text())
+            baseline = json.loads((payload / 'Library/Application Support/OrbitUpdates/bootstrap/installed-version.json').read_text())
+            bootstrap = json.loads((payload / 'Library/Application Support/OrbitUpdates/bootstrap/update-bootstrap.json').read_text())
+            for folder in ['Library/Application Support/OrbitUpdates', 'Library/Application Support/OrbitUpdates/bootstrap']:
+                self.assertEqual((payload / folder).stat().st_mode & 0o777, 0o700)
+            self.assertFalse((payload / 'usr/local/libexec/orbit-updater').exists())
             self.assertGreaterEqual(baseline['sequence'], 0)
             if bootstrap['enabled']:
                 import base64

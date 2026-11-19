@@ -62,15 +62,31 @@ jobs:
               --notes-file packaging/README.txt --latest=false
           fi
           gh release upload "$tag" dist/Orbit-Installer.zip dist/Orbit-Installer.zip.sha256 --clobber
+          # Promote only a complete installer for the current main commit.
+          # Re-running an older build must not replace the latest installer.
+          main_revision=$(gh api "repos/${GH_REPO}/commits/main" --jq '.sha')
+          if [[ "$revision" == "$main_revision" ]]; then
+            gh release edit "$tag" --latest
+          fi
           # Only configured releases enter the automatic-update channel.
           # Artifact URLs reference the immutable commit release, not this feed.
-          if [[ -n "$ORBIT_UPDATE_PUBLIC_KEY" && -n "$ORBIT_UPDATE_PRIVATE_KEY" ]]; then
+          if [[ "$revision" == "$main_revision" && -n "$ORBIT_UPDATE_PUBLIC_KEY" && -n "$ORBIT_UPDATE_PRIVATE_KEY" ]]; then
             swiftc updater/Sign.swift -o "$RUNNER_TEMP/orbit-sign"
+            suffix="-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            mkdir -p dist/update-publish
+            cp dist/update-binaries/orbit-agent "dist/update-publish/orbit-agent${suffix}"
+            cp dist/update-binaries/orbit-foreground "dist/update-publish/orbit-foreground${suffix}"
             python3 updater/publish.py dist "1.0.${GITHUB_RUN_NUMBER}" "$GITHUB_RUN_NUMBER" \
-              "https://github.com/${GH_REPO}/releases/download/${tag}"
+              "https://github.com/${GH_REPO}/releases/download/${tag}" "$suffix"
             printf '%s' "$ORBIT_UPDATE_PRIVATE_KEY" | "$RUNNER_TEMP/orbit-sign" \
               --sign dist/update.json dist/update.json.sig "$ORBIT_UPDATE_PUBLIC_KEY"
-            gh release upload "$tag" dist/update-binaries/orbit-agent dist/update-binaries/orbit-foreground --clobber
+            # Each build attempt has its own URLs; do not invalidate old signed manifests.
+            gh release upload "$tag" "dist/update-publish/orbit-agent${suffix}" "dist/update-publish/orbit-foreground${suffix}" --clobber
+            main_revision=$(gh api "repos/${GH_REPO}/commits/main" --jq '.sha')
+            if [[ "$revision" != "$main_revision" ]]; then
+              echo 'Main advanced during this build; leaving the automatic-update feed unchanged.'
+              exit 0
+            fi
             if ! gh release view agent-updates >/dev/null 2>&1; then
               gh release create agent-updates --target "$revision" --title 'Orbit signed updates' \
                 --notes 'Signed agent/monitor update feed. Do not install these files manually.' --latest=false

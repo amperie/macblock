@@ -36,10 +36,11 @@ let installedFiles = [
     "/usr/local/libexec/orbit-foreground",
     "/usr/local/libexec/orbit-setup",
     "/usr/local/libexec/orbit-uninstall",
+    "/Library/PrivilegedHelperTools/orbit-updater",
     "/usr/local/libexec/orbit-updater",
     "/Library/LaunchDaemons/com.side-forge.orbit.updater.plist",
-    "/usr/local/share/orbit/update-bootstrap.json",
-    "/usr/local/share/orbit/installed-version.json"
+    "/Library/Application Support/OrbitUpdates/bootstrap/update-bootstrap.json",
+    "/Library/Application Support/OrbitUpdates/bootstrap/installed-version.json"
 ]
 
 func userFiles(home: String, purge: Bool) -> [String] {
@@ -108,8 +109,10 @@ func removeChromeProfiles(users: [String], execute: (String, [String]) throws ->
 func removeInstallation(purge: Bool) throws {
     guard getuid() == 0 else { throw RemovalError.message("Uninstall requires administrator authorization") }
     try stopService("system/com.side-forge.orbit.updater")
-    if FileManager.default.fileExists(atPath: "/usr/local/libexec/orbit-updater") {
-        try command("/usr/local/libexec/orbit-updater", ["--recover-only"])
+    if FileManager.default.fileExists(atPath: "/Library/PrivilegedHelperTools/orbit-updater") {
+        try command("/Library/PrivilegedHelperTools/orbit-updater", ["--recover-only"])
+    } else if FileManager.default.fileExists(atPath: "/Library/Application Support/OrbitUpdates/transaction") {
+        throw RemovalError.message("Pending update from an older updater. Recover it with that version before upgrading or uninstalling.")
     }
     // Discover every local user's tracker, including users who are logged out.
     // No root process writes or removes anything inside a user's home.

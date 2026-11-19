@@ -16,15 +16,16 @@ trap 'rm -rf "$work"' EXIT
 payload="$work/payload"
 bundle="$work/Orbit-Installer"
 mkdir -p "$payload/Library/PrivilegedHelperTools" "$payload/Library/LaunchDaemons" "$payload/usr/local/libexec" "$bundle"
-mkdir -p "$work/source" "$payload/usr/local/share/orbit"
+mkdir -p "$work/source" "$payload/Library/Application Support/OrbitUpdates/bootstrap"
 python3 - "$work/source" "$version" <<'PYSOURCE'
 from pathlib import Path
 import sys
 for filename in ('main.swift', 'ForegroundMonitor.swift'):
     (Path(sys.argv[1]) / filename).write_text((Path('agent') / filename).read_text().replace('__ORBIT_BUILD_VERSION__', sys.argv[2]))
 PYSOURCE
+chmod 700 "$payload/Library/Application Support/OrbitUpdates" "$payload/Library/Application Support/OrbitUpdates/bootstrap"
 export ORBIT_PACKAGE_VERSION="$version"
-python3 - "$payload/usr/local/share/orbit" <<'PYCONFIG'
+python3 - "$payload/Library/Application Support/OrbitUpdates/bootstrap" <<'PYCONFIG'
 import base64, json, os, sys
 from pathlib import Path
 key = os.environ.get('ORBIT_UPDATE_PUBLIC_KEY', '')
@@ -56,8 +57,8 @@ lipo -create "$work/agent-arm64" "$work/agent-x86_64" -output "$payload/Library/
 lipo -create "$work/monitor-arm64" "$work/monitor-x86_64" -output "$payload/usr/local/libexec/orbit-foreground"
 lipo -create "$work/setup-arm64" "$work/setup-x86_64" -output "$payload/usr/local/libexec/orbit-setup"
 lipo -create "$work/uninstall-arm64" "$work/uninstall-x86_64" -output "$payload/usr/local/libexec/orbit-uninstall"
-lipo -create "$work/updater-arm64" "$work/updater-x86_64" -output "$payload/usr/local/libexec/orbit-updater"
-for binary in "$payload/Library/PrivilegedHelperTools/orbit-agent" "$payload/usr/local/libexec/"*; do
+lipo -create "$work/updater-arm64" "$work/updater-x86_64" -output "$payload/Library/PrivilegedHelperTools/orbit-updater"
+for binary in "$payload/Library/PrivilegedHelperTools/"* "$payload/usr/local/libexec/"*; do
   chmod 755 "$binary"
   codesign --force --sign - "$binary"
   codesign --verify --strict "$binary"

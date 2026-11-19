@@ -214,18 +214,25 @@ func prepareInstall() throws {
     if (try? run("/bin/launchctl", ["print", service], capture: true)) != nil {
         try run("/bin/launchctl", ["bootout", service])
     }
-    if FileManager.default.fileExists(atPath: "/usr/local/libexec/orbit-updater") {
-        try run("/usr/local/libexec/orbit-updater", ["--recover-only"])
+    if FileManager.default.fileExists(atPath: "/Library/PrivilegedHelperTools/orbit-updater") {
+        try run("/Library/PrivilegedHelperTools/orbit-updater", ["--recover-only"])
+    } else if FileManager.default.fileExists(atPath: "/Library/Application Support/OrbitUpdates/transaction") {
+        throw SetupError.message("Pending update from an older updater. Recover it with that version before upgrading or uninstalling.")
     }
 }
 
-func startUpdater() throws {
-    let enabled = try run("/usr/local/libexec/orbit-updater", ["--setup"], capture: true) == "enabled"
+func startUpdater(command: (String, [String], Bool) throws -> String = { try run($0, $1, capture: $2) }) throws {
+    let enabled = try command("/Library/PrivilegedHelperTools/orbit-updater", ["--setup"], true) == "enabled"
     if enabled {
-        try run("/bin/launchctl", ["enable", "system/com.side-forge.orbit.updater"])
-        try run("/bin/launchctl", ["bootstrap", "system", "/Library/LaunchDaemons/com.side-forge.orbit.updater.plist"])
+        _ = try command("/bin/launchctl", ["enable", "system/com.side-forge.orbit.updater"], false)
+        _ = try command("/bin/launchctl", ["bootstrap", "system", "/Library/LaunchDaemons/com.side-forge.orbit.updater.plist"], false)
         print("Automatic signed updates enabled (hourly checks).")
-    } else { print("Automatic updates disabled: no release-signing public key configured.") }
+    } else {
+        // Merely omitting bootstrap does not prevent a LaunchDaemon plist from
+        // loading at the next reboot. Persist an explicit disabled override.
+        _ = try command("/bin/launchctl", ["disable", "system/com.side-forge.orbit.updater"], false)
+        print("Automatic updates disabled: no release-signing public key configured.")
+    }
 }
 
 func configure(_ username: String, reuseDevice: Bool = false) throws {

@@ -13,7 +13,13 @@ do {
         try key.rawRepresentation.base64EncodedData().write(to: path, options: .withoutOverwriting)
         print(key.publicKey.rawRepresentation.base64EncodedString())
     } else if args.count == 5 && args[1] == "--sign" {
-        let input = FileHandle.standardInput.readData(ofLength: 1024)
+        var input = Data()
+        while true {
+            let chunk = FileHandle.standardInput.readData(ofLength: min(256, 1025 - input.count))
+            if chunk.isEmpty { break }
+            input.append(chunk)
+            guard input.count <= 1024 else { throw NSError(domain: "Signing key input too large", code: 1) }
+        }
         guard let string = String(data: input, encoding: .utf8),
               let bytes = Data(base64Encoded: string.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw NSError(domain: "Invalid key", code: 1) }
         let key = try Curve25519.Signing.PrivateKey(rawRepresentation: bytes)
