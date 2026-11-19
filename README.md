@@ -106,6 +106,8 @@ Network requests and scheduling add to these intervals. A root-agent check-in co
 
 ## Configure website filtering
 
+The Orbit Chrome extension ID is **`nodfkdecpgnodamobchonbhjinhdeoep`**. Enter this when the installer asks for the Chrome Web Store extension ID.
+
 Chrome deployment requires a published extension with its real Web Store ID. The installer supplies the Web Store update URL, server origin, and BROWSER token through a system configuration profile. Approval is mandatory without MDM. Once applied, that policy force-installs the extension, disables Guest/Incognito, and covers Chrome profiles at system scope.
 
 For local development, run `bash dev/browsers.sh`, open `chrome://extensions`, enable Developer Mode, and load `.orbit-dev/chrome-extension`. This installation is removable and profile-specific. It is not the managed production deployment.
