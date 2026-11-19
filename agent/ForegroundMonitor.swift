@@ -23,8 +23,32 @@ struct MonitorSettings: Decodable {
         else { throw NSError(domain: "Orbit", code: 1) }
     }
 }
-struct Upload: Encodable { let events: [FocusEvent]; let current: Current? }
+struct Upload: Encodable {
+    let events: [FocusEvent]
+    let current: Current?
+    private enum CodingKeys: String, CodingKey { case events, current }
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(events, forKey: .events)
+        // Synthesized encoding omits nil optionals, but the server requires an
+        // explicit null to clear the current app on idle, lock, and sleep.
+        try values.encode(current, forKey: .current)
+    }
+}
 struct Current: Encodable { let bundleId: String; let appName: String; let since: Date }
+
+func activityUpload(events: [FocusEvent], current: Current?) throws -> (Upload, Data) {
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    var count = min(events.count, 100)
+    while true {
+        let payload = Upload(events: Array(events.prefix(count)), current: current)
+        let body = try encoder.encode(payload)
+        if body.count <= 65536 { return (payload, body) }
+        guard count > 0 else { throw NSError(domain: "Orbit", code: 2) }
+        count -= 1
+    }
+}
 
 final class NoRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask,
@@ -142,10 +166,9 @@ final class ForegroundMonitor {
         guard let url = URL(string: base + "/api/device/activity") else { return }
         let current = (!suspended && !idle ? tracker.current : nil).map { Current(bundleId: $0.bundleId, appName: $0.appName, since: $0.startedAt) }
         guard !uploading else { return }
-        let payload = Upload(events: Array(pending.prefix(100)), current: current)
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        guard let body = try? encoder.encode(payload) else { return }
+        // Long Unicode names can exceed the server's 64 KiB limit even with
+        // fewer than 100 events. Acknowledge only the events actually sent.
+        guard let (payload, body) = try? activityUpload(events: pending, current: current) else { return }
         uploading = true
         var request = URLRequest(url: url, timeoutInterval: 12)
         request.httpMethod = "POST"

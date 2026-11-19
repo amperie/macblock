@@ -5,6 +5,7 @@ const src = fs.readFileSync('browser/chrome/background.js','utf8');
 const handlers = {};
 let rules = [];
 let savedRevision = 0;
+let policyServer;
 let clientId = null;
 let focused = true;
 let observedDomain = 'example.com';
@@ -13,7 +14,7 @@ let config = {serverURL:'https://example.test',browserToken:'b'.repeat(40)};
 const api = {
   storage:{
     managed:{get:async()=>config},
-    local:{get:async()=>({lastRevision:savedRevision,clientId}),set:async v=>{if ('lastRevision' in v) savedRevision=v.lastRevision; if ('clientId' in v) clientId=v.clientId;}}
+    local:{get:async()=>({lastRevision:savedRevision,policyServer,clientId}),set:async v=>{if ('policyServer' in v) policyServer=v.policyServer; if ('lastRevision' in v) savedRevision=v.lastRevision; if ('clientId' in v) clientId=v.clientId;}}
   },
   idle:{queryState:async()=> 'active'},
   windows:{getLastFocused:async()=>({id:1,focused})},
@@ -28,7 +29,8 @@ const api = {
   alarms:{create:()=>{},onAlarm:{addListener:f=>handlers.alarm=f}}
 };
 let domains=['instagram.com','tiktok.com'];
-const context = {chrome:api,console,URL,Date,crypto:{randomUUID:()=> '11111111-1111-4111-8111-111111111111'},fetch:async(url,opts)=>{
+const context = {chrome:api,console,URL,Date,AbortSignal,crypto:{randomUUID:()=> '11111111-1111-4111-8111-111111111111'},fetch:async(url,opts)=>{
+  assert.ok(opts.signal instanceof AbortSignal);
   assert.equal(opts.headers.Authorization,'Bearer '+config.browserToken);
   if (url.href.endsWith('/api/browser/activity')) {
     assert.equal(opts.method,'POST');
@@ -36,7 +38,7 @@ const context = {chrome:api,console,URL,Date,crypto:{randomUUID:()=> '11111111-1
     assert.equal(JSON.parse(opts.body).clientId,'11111111-1111-4111-8111-111111111111');
     return {ok:true};
   }
-  assert.equal(url.href,'https://example.test/api/browser/domains');
+  assert.equal(url.href,new URL('/api/browser/domains',config.serverURL).href);
   return {ok:true,json:async()=>({revision,blockedDomains:domains})};
 }};
 vm.runInNewContext(src,context);
@@ -57,6 +59,15 @@ vm.runInNewContext(src,context);
   revision = 1; domains=['instagram.com'];
   await handlers.alarm({name:'policy'});
   assert.equal(rules[0].condition.urlFilter,'||reddit.com^');
+  config = {...config, serverURL:'https://other.example.test'};
+  await handlers.alarm({name:'policy'});
+  assert.equal(rules[0].condition.urlFilter,'||instagram.com^', 'A new server must not inherit the previous server revision');
+  assert.equal(policyServer,'https://other.example.test');
+  revision = 2; domains = ['reddit.com'];
+  await handlers.alarm({name:'policy'});
+  revision = 1; domains = ['instagram.com'];
+  await handlers.alarm({name:'policy'});
+  assert.equal(rules[0].condition.urlFilter,'||reddit.com^','Rollback protection still applies on the new server');
   await handlers.alarm({name:'website'});
   focused = false; observedDomain = null;
   await handlers.alarm({name:'website'});

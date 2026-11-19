@@ -58,6 +58,22 @@ class ControlTests(unittest.TestCase):
         s.init_db()
         self.assertNotIn(helper_id, {app['bundleId'] for app in s.policy()['apps']})
 
+    def test_expired_queued_events_do_not_block_current_monitoring(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        def event(start):
+            return dict(eventId=str(uuid.uuid4()), bundleId='com.apple.Safari', appName='Safari',
+                        startedAt=start.isoformat(), endedAt=(start + datetime.timedelta(seconds=10)).isoformat())
+        old = event(now - datetime.timedelta(days=s.RETENTION_DAYS + 2))
+        recent = event(now - datetime.timedelta(minutes=1))
+        current = dict(bundleId='com.apple.Safari', appName='Safari', since=recent['startedAt'])
+        status, _ = self.call('/api/device/activity', s.ACTIVITY, dict(events=[old, recent], current=current))
+        self.assertEqual(status, 200)
+        status, report = self.call('/api/admin/activity', s.ADMIN)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(report['events']), 1)
+        self.assertEqual(report['events'][0]['startedAt'], recent['startedAt'])
+        self.assertEqual(report['current'], current)
+
     def test_usage_history_and_retention(self):
         now = datetime.datetime.now(datetime.timezone.utc)
         today = now.astimezone(s.ZoneInfo('America/Los_Angeles')).date()

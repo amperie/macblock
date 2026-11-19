@@ -12,6 +12,16 @@ async function settings() {
   const managed = await api.storage.managed.get(['serverURL', 'browserToken']).catch(() => ({}));
   return managed.serverURL && managed.browserToken ? managed : null;
 }
+function serverOrigin(cfg) {
+  const base = new URL(cfg.serverURL);
+  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash ||
+      (base.pathname !== '/' && base.pathname !== '')) throw Error('Invalid server URL');
+  return base;
+}
+function fetchBounded(url, options) {
+  // A hung request must not permanently block the serialized policy queue.
+  return fetch(url, {...options, signal: AbortSignal.timeout(15000)});
+}
 let pending = Promise.resolve();
 function update() {
   const task = pending.then(applyPolicy);
@@ -21,16 +31,16 @@ function update() {
 async function applyPolicy() {
   const cfg = await settings();
   if (!cfg) throw Error('Orbit managed configuration missing');
-  const base = new URL(cfg.serverURL);
-  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) throw Error('Invalid server URL');
+  const base = serverOrigin(cfg);
   const url = new URL('/api/browser/domains', base);
-  const response = await fetch(url, {headers:{Authorization:'Bearer ' + cfg.browserToken},redirect:'error',cache:'no-store'});
+  const response = await fetchBounded(url, {headers:{Authorization:'Bearer ' + cfg.browserToken},redirect:'error',cache:'no-store'});
   if (!response.ok) throw Error('Policy fetch failed: ' + response.status);
   const policy = await response.json();
   if (!Number.isSafeInteger(policy.revision) || policy.revision < 1 ||
       !Array.isArray(policy.blockedDomains)) throw Error('Invalid domain policy');
-  const saved = await api.storage.local.get('lastRevision');
-  if (Number.isSafeInteger(saved.lastRevision) && policy.revision < saved.lastRevision)
+  const saved = await api.storage.local.get(['lastRevision','policyServer']);
+  if ((!saved.policyServer || saved.policyServer === base.origin) &&
+      Number.isSafeInteger(saved.lastRevision) && policy.revision < saved.lastRevision)
     throw Error('Rejected older browser policy');
   const domains = [...new Set(policy.blockedDomains.map(normalize).filter(Boolean))].slice(0, 500);
   if (domains.length !== policy.blockedDomains.length) throw Error('Invalid domain policy');
@@ -40,14 +50,12 @@ async function applyPolicy() {
     condition:{urlFilter:'||'+host+'^',resourceTypes:['main_frame','sub_frame']}
   }));
   await api.declarativeNetRequest.updateDynamicRules({removeRuleIds:existing.map(r=>r.id),addRules:rules});
-  await api.storage.local.set({lastRevision:policy.revision,lastSuccess:Date.now()});
+  await api.storage.local.set({lastRevision:policy.revision,policyServer:base.origin,lastSuccess:Date.now()});
 }
 async function reportWebsite() {
   const cfg = await settings();
   if (!cfg) return;
-  const base = new URL(cfg.serverURL);
-  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash)
-    throw Error('Invalid telemetry server URL');
+  const base = serverOrigin(cfg);
   let domain = null;
   const idle = await api.idle.queryState(60);
   if (idle === 'active') {
@@ -67,7 +75,7 @@ async function reportWebsite() {
   const saved = await api.storage.local.get('clientId');
   const clientId = saved.clientId || crypto.randomUUID();
   if (!saved.clientId) await api.storage.local.set({clientId});
-  const response = await fetch(new URL('/api/browser/activity', base), {
+  const response = await fetchBounded(new URL('/api/browser/activity', base), {
     method:'POST', headers:{Authorization:'Bearer '+cfg.browserToken,'Content-Type':'application/json'},
     body:JSON.stringify({domain,clientId}), redirect:'error',cache:'no-store'
   });

@@ -20,6 +20,19 @@ class MonitorSettingsTests(unittest.TestCase):
 @main struct Harness {
     static func main() {
         do {
+            if CommandLine.arguments[1] == "--idle-payload" {
+                FileHandle.standardOutput.write(try JSONEncoder().encode(Upload(events: [], current: nil)))
+                return
+            }
+            if CommandLine.arguments[1] == "--large-payload" {
+                let now = Date()
+                let event = FocusEvent(bundleId: "com." + String(repeating: "a", count: 251),
+                    appName: String(repeating: "😀", count: 100), startedAt: now.addingTimeInterval(-60),
+                    endedAt: now, eventId: UUID())
+                let (_, body) = try activityUpload(events: Array(repeating: event, count: 100), current: nil)
+                FileHandle.standardOutput.write(body)
+                return
+            }
             let settings = try JSONDecoder().decode(MonitorSettings.self, from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
             _ = try ForegroundMonitor(settings: settings, queueURL: URL(fileURLWithPath: CommandLine.arguments[2]))
         } catch { exit(1) }
@@ -34,6 +47,19 @@ class MonitorSettingsTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.tmp.cleanup()
+
+    def test_idle_upload_explicitly_clears_current_app(self):
+        result = subprocess.check_output([str(self.binary), '--idle-payload'], text=True)
+        self.assertEqual(json.loads(result), {'events': [], 'current': None})
+
+    def test_upload_respects_server_body_limit_with_unicode_names(self):
+        body = subprocess.check_output([str(self.binary), '--large-payload'])
+        payload = json.loads(body)
+        self.assertLessEqual(len(body), 65536)
+        self.assertGreater(len(payload['events']), 0)
+        self.assertLess(len(payload['events']), 100)
+        self.assertIsNone(payload['current'])
+        self.assertEqual(len(payload['events'][0]['appName']), 100)
 
     def test_http_requires_explicit_development_and_loopback(self):
         directory = Path(self.tmp.name)
