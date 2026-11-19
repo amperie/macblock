@@ -7,6 +7,12 @@ struct FocusEvent: Codable, Equatable {
     let startedAt: Date
     let endedAt: Date
     let eventId: UUID
+
+    // ISO-8601 telemetry uses whole seconds. Sub-second switches can otherwise
+    // serialize to equal timestamps and cause the server to reject the batch.
+    var hasReportableDuration: Bool {
+        floor(endedAt.timeIntervalSince1970) > floor(startedAt.timeIntervalSince1970)
+    }
 }
 
 struct FocusTracker {
@@ -41,11 +47,12 @@ struct FocusTracker {
         guard let previous = current else { return }
         current = nil
         guard time > previous.startedAt else { return }
-        completed.append(FocusEvent(bundleId: previous.bundleId,
+        let event = FocusEvent(bundleId: previous.bundleId,
                                     appName: previous.appName,
                                     startedAt: previous.startedAt,
                                     endedAt: time,
-                                    eventId: UUID()))
+                                    eventId: UUID())
+        if event.hasReportableDuration { completed.append(event) }
     }
 }
 

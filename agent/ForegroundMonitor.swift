@@ -76,7 +76,10 @@ final class ForegroundMonitor {
         if let data = try? Data(contentsOf: queueURL) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            pending = (try? decoder.decode([FocusEvent].self, from: data)) ?? []
+            // Recover queues written by older monitors, including events whose
+            // timestamps collapsed to the same second during serialization.
+            pending = ((try? decoder.decode([FocusEvent].self, from: data)) ?? [])
+                .filter { $0.hasReportableDuration }
         }
         let development = ProcessInfo.processInfo.environment["ORBIT_MONITOR_DEVELOPMENT"] == "1"
         try settings.validate(development: development)
