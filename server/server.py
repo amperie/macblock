@@ -24,7 +24,7 @@ PRIVACY_HTML = """<!doctype html>
 <li>The extension reads the active tab URL locally to extract the hostname. It does not transmit full URLs, paths, query strings, or page titles. It does not collect page content, messages, passwords entered on websites, payment details, keystrokes, mouse movements, or clicks.</li>
 <li>Locally stored policy revision, last successful update time, and blocking rules.</li></ul>
 <p>Active/idle and browser-focus checks support usage estimates; they do not provide exact screen time. The browser token is an Orbit service credential, not a website password.</p></section>
-<section><h2>Optional Mac components</h2><p>If the separate Orbit Mac agent and foreground monitor are installed, they also send application identifiers, application names, foreground-session times, and operational status to the Orbit server. These components are separate from the Chrome extension.</p></section>
+<section><h2>Optional Mac components</h2><p>If the separate Orbit Mac agent and foreground monitor are installed, they also send the Mac hostname, application identifiers, application names, foreground-session times, and operational status to the Orbit server. These components are separate from the Chrome extension.</p></section>
 <section><h2>Use and sharing</h2><p>Information is used to enforce parent-selected restrictions, produce usage reports, and operate the service. Reports are accessible to anyone holding the parent dashboard's administrator credential. Extension reports are transmitted over HTTPS to the administrator-configured Orbit server; there is no separate advertising or analytics destination in the extension.</p>
 <p>Orbit does not sell personal data, use it for advertising, or use it to determine creditworthiness or lending eligibility. The configured hosting provider, reverse proxy, or CDN may process connection metadata, including IP addresses, and may keep access logs. Logging and infrastructure retention depend on the deployment; Orbit does not derive GPS location.</p>
 <p>Orbit's use and transfer of information received from Google APIs adheres to the Chrome Web Store User Data Policy, including the Limited Use requirements. Data is used only for the described family-control functionality.</p></section>
@@ -216,6 +216,8 @@ def init_db():
         conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(existing),))
         conn.execute('CREATE TABLE IF NOT EXISTS quota_usage (day TEXT NOT NULL, bundle_id TEXT NOT NULL, seconds REAL NOT NULL, PRIMARY KEY(day,bundle_id))')
         conn.execute('CREATE TABLE IF NOT EXISTS status (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
+        conn.execute('CREATE TABLE IF NOT EXISTS device_status (hostname TEXT PRIMARY KEY, payload TEXT NOT NULL, seen TEXT NOT NULL)')
+        conn.execute("INSERT OR IGNORE INTO device_status SELECT '', payload, seen FROM status WHERE id=1 AND NOT EXISTS (SELECT 1 FROM device_status)")
         conn.execute('CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, message TEXT, created TEXT)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity (event_id TEXT PRIMARY KEY, bundle_id TEXT NOT NULL, app_name TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL)')
         conn.execute('CREATE TABLE IF NOT EXISTS activity_current (id INTEGER PRIMARY KEY, payload TEXT, seen TEXT)')
@@ -317,6 +319,18 @@ def usage_report(config, now=None):
             results[kind] = sorted(by_key.values(), key=lambda e: e['id'])
     return dict(timeZone=str(zone), retentionDays=RETENTION_DAYS,
                 startDate=cutoff, endDate=today.isoformat(), **results)
+
+
+def connections_report(now=None):
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    with sqlite3.connect(DB) as conn:
+        rows = conn.execute('SELECT hostname,payload,seen FROM device_status ORDER BY hostname').fetchall()
+    devices = []
+    for hostname, payload, seen in rows:
+        age = (now - parse_time(seen)).total_seconds()
+        devices.append(dict(hostname=hostname or None, report=json.loads(payload), lastSeen=seen,
+                            connected=0 <= age <= 300))
+    return dict(devices=devices, serverTimeUTC=now.isoformat())
 
 
 def policy():
@@ -456,12 +470,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, {'events': [dict(bundleId=r[0], appName=r[1], startedAt=r[2], endedAt=r[3]) for r in rows],
                                  'current': json.loads(current[0]) if current else None,
                                  'lastSeen': current[1] if current else None})
+        elif self.path == '/api/admin/connections':
+            if self.authorized(ADMIN):
+                self.reply(200, connections_report())
         elif self.path == '/api/admin/state':
             if self.authorized(ADMIN):
                 with sqlite3.connect(DB) as conn:
                     row = conn.execute('SELECT payload, seen FROM status WHERE id=1').fetchone()
                 config = policy()
-                self.reply(200, dict(timeZones=TIME_ZONES, policy=config, quotaState=quota_state(config), appQuotaStates=app_quota_states(config), device=dict(report=json.loads(row[0]), lastSeen=row[1]) if row else None))
+                self.reply(200, dict(**connections_report(), timeZones=TIME_ZONES, policy=config, quotaState=quota_state(config), appQuotaStates=app_quota_states(config), device=dict(report=json.loads(row[0]), lastSeen=row[1]) if row else None))
         else:
             self.reply(404, {'error': 'Not found'})
 
@@ -518,9 +535,19 @@ class Handler(BaseHTTPRequestHandler):
                     conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(current),))
                 self.reply(200, current)
             else:
-                if set(data) != {'revision', 'agentVersion', 'lastError'} or type(data['revision']) is not int or not 0 <= data['revision'] < 2**53 or not isinstance(data['agentVersion'], str) or len(data['agentVersion']) > 40 or not isinstance(data['lastError'], str) or len(data['lastError']) > 500:
+                if set(data) not in ({'revision', 'agentVersion', 'lastError'}, {'revision', 'agentVersion', 'lastError', 'hostname'}) or type(data['revision']) is not int or not 0 <= data['revision'] < 2**53 or not isinstance(data['agentVersion'], str) or len(data['agentVersion']) > 40 or not isinstance(data['lastError'], str) or len(data['lastError']) > 500:
                     raise ValueError('Invalid status')
-                with sqlite3.connect(DB) as conn:
+                hostname = data.get('hostname', '')
+                if 'hostname' in data and (not isinstance(hostname, str) or not 1 <= len(hostname) <= 253 or
+                        hostname != hostname.strip() or any(not c.isprintable() for c in hostname) or
+                        any(0xD800 <= ord(c) <= 0xDFFF for c in hostname)):
+                    raise ValueError('Invalid hostname')
+                host_key = hostname.casefold().rstrip('.')
+                if 'hostname' in data and not host_key:
+                    raise ValueError('Invalid hostname')
+                with LOCK, sqlite3.connect(DB) as conn:
+                    conn.execute("INSERT OR REPLACE INTO device_status VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
+                                 (host_key, json.dumps(data)))
                     conn.execute("INSERT OR REPLACE INTO status VALUES (1, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))", (json.dumps(data),))
                 self.reply(200, {'ok': True})
         except (ValueError, TypeError, KeyError, OverflowError, TimeoutError):

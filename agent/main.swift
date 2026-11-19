@@ -165,7 +165,7 @@ struct RuntimeOptions {
     var development = false
     var dryRun = false
     var stateDirectory = "/Library/Application Support/Orbit"
-    var pollSeconds: Double = 120
+    var pollSeconds: Double = 60
     static func parse(_ arguments: [String]) throws -> RuntimeOptions {
         var result = RuntimeOptions()
         result.development = arguments.contains("--dev")
@@ -432,13 +432,13 @@ DispatchQueue.global(qos: .utility).async {
             if options.development { log("Sync failed (\(error)); cached policy remains active") }
         }
         policyLock.lock()
-        let report: [String: Any] = ["revision": active?.revision ?? 0, "agentVersion": options.development ? (options.dryRun ? "0.2.0-dev-dry-run" : "0.2.0-dev-enforce") : "0.2.0", "lastError": String([syncError, enforcementError].filter { !$0.isEmpty }.joined(separator: "; ").prefix(500))]
+        let report: [String: Any] = ["hostname": ProcessInfo.processInfo.hostName, "revision": active?.revision ?? 0, "agentVersion": options.development ? (options.dryRun ? "0.2.0-dev-dry-run" : "0.2.0-dev-enforce") : "0.2.0", "lastError": String([syncError, enforcementError].filter { !$0.isEmpty }.joined(separator: "; ").prefix(500))]
         policyLock.unlock()
         do { _ = try request(settings, "/api/device/status", body: JSONSerialization.data(withJSONObject: report)) } catch { }
         policyLock.lock()
         let hasQuota = active?.quota?.enabled == true || (active?.appRules ?? [:]).values.contains(where: { $0.minutes != nil })
         policyLock.unlock()
-        Thread.sleep(forTimeInterval: options.development ? options.pollSeconds : (hasQuota ? 30 : 120))
+        Thread.sleep(forTimeInterval: options.development ? options.pollSeconds : (hasQuota ? 30 : options.pollSeconds))
     }
 }
 while true {

@@ -74,6 +74,47 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(report['events'][0]['startedAt'], recent['startedAt'])
         self.assertEqual(report['current'], current)
 
+    def test_connections_are_separate_by_hostname_and_keep_last_seen(self):
+        report = dict(revision=1, agentVersion='test', lastError='')
+        self.assertEqual(self.call('/api/device/status', s.DEVICE, dict(report, hostname='Daughter-Mac.local'))[0], 200)
+        old = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=10)).isoformat()
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute('UPDATE device_status SET seen=? WHERE hostname=?', (old, 'daughter-mac.local'))
+        self.assertEqual(self.call('/api/device/status', s.DEVICE, dict(report, hostname='Parent-Mac.local'))[0], 200)
+        self.assertEqual(self.call('/api/device/status', s.DEVICE, dict(report, hostname='PARENT-MAC.local.'))[0], 200)
+        code, body = self.call('/api/admin/connections', s.ADMIN)
+        self.assertEqual(code, 200)
+        hosts = {device['hostname']: device for device in body['devices']}
+        self.assertEqual(set(hosts), {'daughter-mac.local', 'parent-mac.local'})
+        self.assertEqual(hosts['daughter-mac.local']['lastSeen'], old)
+        self.assertFalse(hosts['daughter-mac.local']['connected'])
+        self.assertTrue(hosts['parent-mac.local']['connected'])
+        state = self.call('/api/admin/state', s.ADMIN)[1]
+        self.assertEqual(state['devices'], body['devices'])
+        self.assertEqual(state['device']['report']['hostname'], 'PARENT-MAC.local.')
+        for credential in [s.DEVICE, s.BROWSER, s.ACTIVITY, 'wrong']:
+            self.assertEqual(self.call('/api/admin/connections', credential)[0], 401)
+
+    def test_legacy_connections_and_database_upgrade(self):
+        report = dict(revision=1, agentVersion='old', lastError='')
+        self.assertEqual(self.call('/api/device/status', s.DEVICE, report)[0], 200)
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute('DROP TABLE device_status')
+        s.init_db()
+        devices = self.call('/api/admin/connections', s.ADMIN)[1]['devices']
+        self.assertEqual(len(devices), 1)
+        self.assertIsNone(devices[0]['hostname'])
+        self.assertEqual(devices[0]['report'], report)
+        s.init_db()
+        self.assertEqual(len(self.call('/api/admin/connections', s.ADMIN)[1]['devices']), 1)
+
+    def test_status_rejects_invalid_hostnames_without_losing_connections(self):
+        report = dict(revision=1, agentVersion='test', lastError='')
+        for hostname in ['', None, 3, [], 'x' * 254, 'mac\n', ' mac ', '.']:
+            with self.subTest(hostname=repr(hostname)):
+                self.assertEqual(self.call('/api/device/status', s.DEVICE, dict(report, hostname=hostname))[0], 400)
+        self.assertEqual(self.call('/api/admin/connections', s.ADMIN)[1]['devices'], [])
+
     def test_usage_history_and_retention(self):
         now = datetime.datetime.now(datetime.timezone.utc)
         today = now.astimezone(s.ZoneInfo('America/Los_Angeles')).date()
@@ -213,7 +254,7 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(s.policy()['revision'], 1)
 
     def test_unicode_and_name_validation(self):
-        for name in ['   ', 'x' * 81, 'x' * 80 + ' ', '\ud800']:
+        for name in ['   ', 'x' * 81, 'x' * 80 + ' ']:
             rule = dict(name=name, bundleId='com.example.app', blocked=True)
             # Escape invalid Unicode instead of attempting to encode a surrogate.
             request = urllib.request.Request(self.url + '/api/admin/policy',

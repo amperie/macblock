@@ -97,6 +97,29 @@ const responseFor = path => path === '/api/admin/usage' ? usage() :
   assert.match(get('daily-chart').children[0].textContent, /No app time recorded/);
   assert.equal(get('today-total').textContent, '0 min');
   run('dirty = false');
+  const connections = {serverTimeUTC:new Date().toISOString(), devices:[
+    {hostname:'daughter-mac.local',lastSeen:new Date().toISOString(),report:{agentVersion:'test',revision:2,lastError:''}},
+    {hostname:'parent-mac.local',lastSeen:'2020-01-01T00:00:00Z',report:{agentVersion:'old',revision:1,lastError:'Sync failed'}},
+    {hostname:null,lastSeen:'2020-01-01T00:00:00Z',report:{agentVersion:'legacy'}}
+  ]};
+  run('dirty = true; activeTab = "blocking"');
+  fetchImpl = async path => {
+    assert.equal(path, '/api/admin/connections');
+    return {ok:true,json:async()=>connections};
+  };
+  await get('connections-refresh').onclick();
+  assert.equal(run('dirty'),true, 'Connection refresh must preserve unsaved edits');
+  const cards = get('connections-list').children;
+  assert.equal(cards.length,3);
+  assert.equal(cards[0].children[0].children[0].textContent,'daughter-mac.local');
+  assert.equal(cards[0].children[0].children[1].textContent,'Recently connected');
+  assert.equal(cards[1].children[0].children[1].textContent,'Offline / overdue');
+  assert.equal(cards[1].children[1].children[1].dateTime,'2020-01-01T00:00:00Z');
+  assert.equal(cards[2].children[0].children[0].textContent,'Unknown Mac (older agent)');
+  assert.equal(cards[1].children[3].textContent,'Sync failed');
+  run('renderConnections([])');
+  assert.equal(get('connections-list').children[0].textContent,'No Macs have connected yet.');
+  run('dirty = false');
   location.hash = '#token=expired';
   fetchImpl = async () => ({ok: false, json: async () => ({error: 'Unauthorized'})});
   await run('connectFromLink()');

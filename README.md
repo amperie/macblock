@@ -146,3 +146,14 @@ python3 tools/dev.py agent --local --enforce
 ```
 
 All local credentials, database, settings, build output, and cached policy live in ignored `.dev/`, separate from production. State persists between runs; delete `.dev/` while everything is stopped to reset it. Use `--state-dir /another/local/directory` consistently on all commands for a second isolated environment. Choose a port with `--port 8766` on first setup; subsequent launches reuse it. Development permits HTTP only on loopback; production still requires HTTPS and root.
+
+The dashboard shows a Mac connections box above all tabs, grouped by reported
+hostname, with each Mac's last server-received check-in time. It refreshes every
+15 seconds without changing unsaved policy edits. Agents must be updated to send
+hostnames; older agents share an Unknown Mac row. Connection records are separate
+by host; policies, quotas and activity accounting remain shared. Deploy the server
+update before installing the updated agents.
+
+Mac agents normally check for policy updates and report their connection every
+60 seconds. When daily limits are enabled, they check every 30 seconds. Network
+request time adds to these intervals; app enforcement continues every two seconds.

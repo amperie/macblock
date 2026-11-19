@@ -30,7 +30,51 @@ async function api(path, body) {
   if (!response.ok) throw Error(data.error || 'Request failed');
   return data;
 }
+let connectionSnapshot = [], connectionClockOffset = 0;
+function renderConnections(devices = connectionSnapshot, serverTimeUTC) {
+  connectionSnapshot = devices;
+  if (serverTimeUTC && Number.isFinite(Date.parse(serverTimeUTC))) connectionClockOffset = Date.parse(serverTimeUTC) - Date.now();
+  const root = $('connections-list'); root.replaceChildren();
+  if (!devices.length) {
+    const empty = document.createElement('p'); empty.className = 'empty';
+    empty.textContent = 'No Macs have connected yet.'; root.append(empty); return;
+  }
+  for (const device of devices) {
+    const row = document.createElement('article'); row.className = 'connection-card';
+    const heading = document.createElement('div'); heading.className = 'line';
+    const name = document.createElement('strong'); name.textContent = device.hostname || 'Unknown Mac (older agent)';
+    const age = Date.now() + connectionClockOffset - Date.parse(device.lastSeen);
+    const online = Number.isFinite(age) && age >= 0 && age <= 300000;
+    const badge = document.createElement('span'); badge.className = 'connection-state ' + (online ? 'online' : 'offline');
+    badge.textContent = online ? 'Recently connected' : 'Offline / overdue';
+    heading.append(name, badge);
+    const last = document.createElement('p');
+    const time = document.createElement('time'); time.dateTime = device.lastSeen;
+    time.textContent = Number.isFinite(Date.parse(device.lastSeen)) ? new Date(device.lastSeen).toLocaleString(undefined, {timeZoneName:'short'}) : 'Unknown';
+    last.append('Last connected: ', time);
+    const details = document.createElement('small');
+    details.textContent = 'Agent ' + (device.report?.agentVersion || 'unknown') + ' · Settings revision ' + (device.report?.revision ?? 'unknown');
+    row.append(heading, last, details);
+    if (device.report?.lastError) {
+      const error = document.createElement('p'); error.className = 'connection-error';
+      error.textContent = device.report.lastError; row.append(error);
+    }
+    root.append(row);
+  }
+}
+async function refreshConnections() {
+  try {
+    const data = await api('/api/admin/connections');
+    renderConnections(data.devices, data.serverTimeUTC);
+    $('connections-note').textContent = 'Updates every 15 seconds. Recent means a check-in within five minutes.';
+  } catch (error) {
+    renderConnections();
+    $('connections-note').textContent = 'Connection status could not be refreshed: ' + error.message;
+  }
+}
+$('connections-refresh').onclick = action(refreshConnections);
 function render() {
+  renderConnections(state.devices || (state.device ? [state.device] : []), state.serverTimeUTC);
   if (!dirty) $('blocked-domains').value = (state.policy.blockedDomains || []).join('\n');
   const zone = $('enforcement-zone');
   zone.replaceChildren();
@@ -330,8 +374,11 @@ function renderUsageCharts() {
 }
 $('usage-period').addEventListener('change', renderUsageCharts);
 window.setInterval(() => {
-  if (!token || activeTab !== 'monitoring' || busy || document.hidden) return;
-  void action(refreshMonitoring)();
+  if (!token || busy || document.hidden) return;
+  void action(async () => {
+    await refreshConnections();
+    if (activeTab === 'monitoring') await refreshMonitoring();
+  })();
 }, 15000);
 
 async function connectFromLink() {

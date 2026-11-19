@@ -9,6 +9,12 @@
   <header><span class="eyebrow">ORBIT · FAMILY CONTROLS</span><h1>A little more balance.</h1><p>Set boundaries. See how time is spent.</p></header>
   <section id="login"><label for="token">Parent access token</label><div class="line"><input id="token" type="password" autocomplete="current-password"><button id="connect">Connect</button></div><small>Your token stays in this tab’s memory.</small></section>
   <div id="controls" hidden>
+    <section class="connections-box" aria-labelledby="connections-heading">
+      <div class="line"><h2 id="connections-heading">Mac connections</h2><button id="connections-refresh" class="secondary">Refresh connections</button></div>
+      <p class="hint">Last agent check-in from each Mac. Older installations appear as Unknown Mac until updated.</p>
+      <div id="connections-list" aria-live="polite"></div>
+      <p id="connections-note" class="hint" role="status"></p>
+    </section>
     <nav class="tabs" role="tablist" aria-label="Family controls">
       <button id="tab-blocking" role="tab" aria-selected="true" aria-controls="panel-blocking">Blocking</button>
       <button id="tab-monitoring" role="tab" aria-selected="false" aria-controls="panel-monitoring" tabindex="-1">Monitoring</button>
