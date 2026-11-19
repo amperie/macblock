@@ -337,7 +337,7 @@ class PackagePayloadTests(unittest.TestCase):
             payload = expanded / 'Payload'
             for name in ['Library', 'Library/PrivilegedHelperTools', 'Library/LaunchDaemons', 'usr', 'usr/local', 'usr/local/libexec']:
                 self.assertEqual((payload / name).stat().st_mode & 0o777, 0o755, name)
-            for name in ['Library/PrivilegedHelperTools/orbit-agent', 'usr/local/libexec/orbit-foreground', 'usr/local/libexec/orbit-setup', 'usr/local/libexec/orbit-uninstall']:
+            for name in ['Library/PrivilegedHelperTools/orbit-agent', 'usr/local/libexec/orbit-foreground', 'usr/local/libexec/orbit-setup', 'usr/local/libexec/orbit-uninstall', 'usr/local/libexec/orbit-updater']:
                 binary = payload / name
                 self.assertEqual(binary.stat().st_mode & 0o777, 0o755)
                 subprocess.run(['/usr/bin/lipo', str(binary), '-verify_arch', 'arm64', 'x86_64'], check=True, capture_output=True)
@@ -349,3 +349,15 @@ class PackagePayloadTests(unittest.TestCase):
             self.assertTrue(properties['RunAtLoad'])
             self.assertTrue(properties['KeepAlive'])
             self.assertFalse(list(payload.rglob('*settings.json')))
+            updater = plistlib.loads((payload / 'Library/LaunchDaemons/com.side-forge.orbit.updater.plist').read_bytes())
+            self.assertEqual(updater['StartInterval'], 3600)
+            self.assertEqual(updater['ProgramArguments'], ['/usr/local/libexec/orbit-updater', '--once'])
+            self.assertTrue(updater['RunAtLoad'])
+            self.assertNotIn('KeepAlive', updater)
+            baseline = json.loads((payload / 'usr/local/share/orbit/installed-version.json').read_text())
+            bootstrap = json.loads((payload / 'usr/local/share/orbit/update-bootstrap.json').read_text())
+            self.assertGreaterEqual(baseline['sequence'], 0)
+            if bootstrap['enabled']:
+                import base64
+                self.assertEqual(len(base64.b64decode(bootstrap['publicKey'])), 32)
+                self.assertGreater(baseline['sequence'], 0)

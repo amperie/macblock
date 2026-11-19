@@ -33,8 +33,11 @@ jobs:
       - name: Validate packaging and settings
         run: |
           bash -n packaging/build.sh packaging/Install-Orbit.command packaging/Uninstall-Orbit.command
-          PYTHONPATH=tests python3 -m unittest test_agent.AgentValidationTests.test_settings_validation_before_install test_monitor.MonitorSettingsTests test_packaging -v
+          PYTHONPATH=tests python3 -m unittest test_agent.AgentValidationTests.test_settings_validation_before_install test_monitor.MonitorSettingsTests test_packaging test_updater -v
       - name: Build universal package
+        env:
+          ORBIT_UPDATE_PUBLIC_KEY: ${{ vars.ORBIT_UPDATE_PUBLIC_KEY }}
+          ORBIT_UPDATE_SEQUENCE: ${{ github.run_number }}
         run: bash packaging/build.sh "1.0.${GITHUB_RUN_NUMBER}"
       - name: Verify packaged services and permissions
         env:
@@ -48,6 +51,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          ORBIT_UPDATE_PUBLIC_KEY: ${{ vars.ORBIT_UPDATE_PUBLIC_KEY }}
+          ORBIT_UPDATE_PRIVATE_KEY: ${{ secrets.ORBIT_UPDATE_PRIVATE_KEY }}
         run: |
           revision=$(git rev-parse HEAD)
           tag="agent-${revision:0:12}"
@@ -57,3 +62,18 @@ jobs:
               --notes-file packaging/README.txt --latest=false
           fi
           gh release upload "$tag" dist/Orbit-Installer.zip dist/Orbit-Installer.zip.sha256 --clobber
+          # Only configured releases enter the automatic-update channel.
+          # Artifact URLs reference the immutable commit release, not this feed.
+          if [[ -n "$ORBIT_UPDATE_PUBLIC_KEY" && -n "$ORBIT_UPDATE_PRIVATE_KEY" ]]; then
+            swiftc updater/Sign.swift -o "$RUNNER_TEMP/orbit-sign"
+            python3 updater/publish.py dist "1.0.${GITHUB_RUN_NUMBER}" "$GITHUB_RUN_NUMBER" \
+              "https://github.com/${GH_REPO}/releases/download/${tag}"
+            printf '%s' "$ORBIT_UPDATE_PRIVATE_KEY" | "$RUNNER_TEMP/orbit-sign" \
+              --sign dist/update.json dist/update.json.sig "$ORBIT_UPDATE_PUBLIC_KEY"
+            gh release upload "$tag" dist/update-binaries/orbit-agent dist/update-binaries/orbit-foreground --clobber
+            if ! gh release view agent-updates >/dev/null 2>&1; then
+              gh release create agent-updates --target "$revision" --title 'Orbit signed updates' \
+                --notes 'Signed agent/monitor update feed. Do not install these files manually.' --latest=false
+            fi
+            gh release upload agent-updates dist/update.json dist/update.json.sig --clobber
+          fi

@@ -4,6 +4,8 @@ import IOKit
 
 // Runs in the logged-in user's GUI session. Activity token can upload telemetry
 // only; it cannot fetch policies or change blocking rules.
+private let monitorBuild = "__ORBIT_BUILD_VERSION__"
+private let monitorVersion = monitorBuild.hasPrefix("__") ? "0.3.0-dev" : monitorBuild
 struct MonitorSettings: Decodable {
     let serverURL: String
     let activityToken: String
@@ -181,6 +183,10 @@ final class ForegroundMonitor {
                 guard let self = self else { return }
                 self.uploading = false
                 guard error == nil, (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+                let receipt: [String: Any] = ["pid": getpid(), "version": monitorVersion, "at": Date().timeIntervalSince1970]
+                if let data = try? JSONSerialization.data(withJSONObject: receipt) {
+                    try? data.write(to: self.queueURL.deletingLastPathComponent().appendingPathComponent("monitor-health.json"), options: .atomic)
+                }
                 let ids = Set(payload.events.map(\.eventId))
                 self.pending.removeAll { ids.contains($0.eventId) }
                 self.persist()
