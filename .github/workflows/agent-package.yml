@@ -57,3 +57,9 @@ jobs:
               --notes-file packaging/README.txt --latest=false
           fi
           gh release upload "$tag" dist/Orbit-Installer.zip dist/Orbit-Installer.zip.sha256 --clobber
+          # Promote only a complete installer for the current main commit.
+          # Re-running an older build must not replace the latest installer.
+          main_revision=$(gh api "repos/${GH_REPO}/commits/main" --jq '.sha')
+          if [[ "$revision" == "$main_revision" ]]; then
+            gh release edit "$tag" --latest
+          fi
