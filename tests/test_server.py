@@ -178,6 +178,18 @@ class ControlTests(unittest.TestCase):
         report = self.call('/api/admin/usage', s.ADMIN)[1]
         self.assertEqual([row['id'] for row in report['websites']], ['one.example', 'two.example'])
 
+    def test_reset_counters_requires_admin_and_current_revision(self):
+        payload = dict(revision=s.policy()['revision'])
+        for token in [s.DEVICE, s.ACTIVITY, s.BROWSER, '']:
+            self.assertEqual(self.call('/api/admin/usage/reset',token,payload)[0],401)
+        self.assertEqual(self.call('/api/admin/usage/reset',s.ADMIN,dict(revision=True))[0],400)
+        self.assertEqual(self.call('/api/admin/usage/reset',s.ADMIN,dict(revision=999))[0],409)
+        code,result = self.call('/api/admin/usage/reset',s.ADMIN,payload)
+        self.assertEqual(code,200)
+        self.assertEqual(result['revision'],payload['revision']+1)
+        self.assertEqual(s.policy()['revision'],result['revision'])
+        self.assertEqual(self.call('/api/admin/usage/reset',s.ADMIN,payload)[0],409)
+
     def test_auth_separation(self):
         self.assertEqual(self.call('/api/admin/state', s.DEVICE)[0], 401)
         self.assertEqual(self.call('/api/device/policy', s.ADMIN)[0], 401)
@@ -415,5 +427,99 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(self.call('/api/device/activity', s.ACTIVITY,
                                    dict(events=[], current=dict(current, since=future)))[0], 400)
         self.assertEqual(len(self.call('/api/admin/activity', s.ADMIN)[1]['events']), 1)
+
+
+class UsageCounterTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.previous_db = s.DB
+        s.DB = os.path.join(self.tmp.name, 'counters.sqlite3')
+        s.init_db()
+        self.now = datetime.datetime.now(datetime.timezone.utc)
+        self.day = self.now.date().isoformat()
+        self.bid = 'com.example.limited'
+        self.config = dict(s.policy(), enforcementTimeZone='UTC',
+            apps=[dict(name='Limited', bundleId=self.bid, blocked=False)],
+            quota=dict(enabled=True, bundleId=self.bid, minutes=20),
+            appRules={self.bid:dict(schedule=dict(enabled=False,start='21:00',end='07:00'),minutes=20)})
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute('INSERT INTO quota_usage VALUES (?,?,?)', (self.day,self.bid,1800))
+            conn.execute('INSERT INTO website_usage VALUES (?,?,?)', (self.day,'example.com',600))
+            current = dict(bundleId=self.bid, appName='Limited', since=(self.now-datetime.timedelta(hours=1)).isoformat())
+            seen = (self.now-datetime.timedelta(seconds=30)).isoformat()
+            conn.execute('INSERT INTO activity_current VALUES (1,?,?)', (json.dumps(current),seen))
+            conn.execute('INSERT INTO browser_sessions VALUES (?,?,?)', ('live','example.com',seen))
+            conn.execute('INSERT INTO browser_sessions VALUES (?,?,?)', ('stale','example.com',(self.now-datetime.timedelta(hours=1)).isoformat()))
+
+    def tearDown(self):
+        s.DB = self.previous_db
+        self.tmp.cleanup()
+
+    def test_changed_limits_recalculate_without_resetting_usage(self):
+        for minutes, exceeded in [(20,True),(45,False),(15,True),(30,True)]:
+            with self.subTest(minutes=minutes):
+                self.config['quota']['minutes'] = minutes
+                self.config['appRules'][self.bid]['minutes'] = minutes
+                for state in [s.quota_state(self.config,self.now),s.app_quota_states(self.config,self.now)[self.bid]]:
+                    self.assertEqual(state['usedSeconds'],1800)
+                    self.assertEqual(state['limitSeconds'],minutes*60)
+                    self.assertEqual(state['exceeded'],exceeded)
+                    self.assertTrue(state['monitoringFresh'])
+
+    def test_reset_zeros_totals_and_counts_only_time_after_reset(self):
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute('INSERT INTO quota_usage VALUES (?,?,?)', ('2020-01-01',self.bid,100))
+            s.reset_usage_counters(conn,self.now)
+        self.assertEqual(s.usage_report(self.config,self.now)['apps'],[])
+        self.assertEqual(s.usage_report(self.config,self.now)['websites'],[])
+        self.assertEqual(s.app_quota_states(self.config,self.now)[self.bid]['usedSeconds'],0)
+        self.assertFalse(s.quota_state(self.config,self.now)['exceeded'])
+        after = self.now+datetime.timedelta(seconds=10)
+        with sqlite3.connect(s.DB) as conn:
+            s.record_heartbeat(conn,None,self.config,after)
+            s.record_browser_heartbeat(conn,('live','example.com'),self.config,after)
+            s.record_browser_heartbeat(conn,('stale','example.com'),self.config,after)
+            self.assertAlmostEqual(conn.execute('SELECT seconds FROM quota_usage').fetchone()[0],10)
+            self.assertAlmostEqual(conn.execute('SELECT seconds FROM website_usage').fetchone()[0],10)
+
+    def test_reset_endpoint_authorization_and_revision_without_network(self):
+        from io import BytesIO
+        from email.message import Message
+        original = (s.ADMIN,s.DEVICE,s.ACTIVITY,s.BROWSER)
+        s.ADMIN,s.DEVICE,s.ACTIVITY,s.BROWSER = 'a'*40,'d'*40,'m'*40,'b'*40
+        def request(token, payload):
+            handler = s.Handler.__new__(s.Handler)
+            handler.path = '/api/admin/usage/reset'
+            handler.headers = Message()
+            handler.headers['Authorization'] = 'Bearer '+token
+            body = json.dumps(payload).encode()
+            handler.headers['Content-Length'] = str(len(body))
+            handler.rfile = BytesIO(body)
+            replies = []
+            handler.reply = lambda code,data: replies.append((code,data))
+            handler.do_POST()
+            return replies[0]
+        try:
+            revision = s.policy()['revision']
+            for token in [s.DEVICE,s.ACTIVITY,s.BROWSER,'']:
+                self.assertEqual(request(token,dict(revision=revision))[0],401)
+            self.assertEqual(request(s.ADMIN,dict(revision=True))[0],400)
+            self.assertEqual(request(s.ADMIN,dict(revision=revision+1))[0],409)
+            self.assertGreater(s.quota_state(self.config,self.now)['usedSeconds'],0)
+            code,result = request(s.ADMIN,dict(revision=revision))
+            self.assertEqual(code,200)
+            self.assertEqual(result['revision'],revision+1)
+            self.assertEqual(s.policy()['revision'],revision+1)
+            self.assertEqual(s.usage_report(self.config,self.now)['apps'],[])
+            self.assertEqual(request(s.ADMIN,dict(revision=revision))[0],409)
+        finally:
+            s.ADMIN,s.DEVICE,s.ACTIVITY,s.BROWSER = original
+
+    def test_reset_does_not_make_offline_monitor_fresh(self):
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute('UPDATE activity_current SET seen=?', ((self.now-datetime.timedelta(minutes=5)).isoformat(),))
+            s.reset_usage_counters(conn,self.now)
+        self.assertFalse(s.quota_state(self.config,self.now)['monitoringFresh'])
+
 
 if __name__ == '__main__': unittest.main()

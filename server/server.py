@@ -79,6 +79,20 @@ def quota_state(config, now=None):
                 monitoringFresh=fresh, day=day)
 
 
+def reset_usage_counters(conn, now):
+    """Clear totals and move live accounting boundaries past the reset."""
+    conn.execute('DELETE FROM quota_usage')
+    conn.execute('DELETE FROM website_usage')
+    # Preserve stale timestamps: a parent reset is not a monitor check-in.
+    row = conn.execute('SELECT seen FROM activity_current WHERE id=1').fetchone()
+    if row and 0 <= (now - parse_time(row[0])).total_seconds() <= 90:
+        conn.execute('UPDATE activity_current SET seen=? WHERE id=1', (now.isoformat(),))
+    for client_id, seen in conn.execute('SELECT client_id, seen FROM browser_sessions').fetchall():
+        if 0 <= (now - parse_time(seen)).total_seconds() <= 90:
+            conn.execute('UPDATE browser_sessions SET seen=? WHERE client_id=?', (now.isoformat(), client_id))
+    conn.execute("INSERT INTO alerts(kind,message,created) VALUES('usage','Parent reset all app and website usage counters',?)", (now.isoformat(),))
+
+
 def record_heartbeat(conn, current, config, now):
     zone = ZoneInfo(config.get('enforcementTimeZone', 'America/Los_Angeles'))
     day = now.astimezone(zone).date().isoformat()
@@ -483,14 +497,28 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {'error': 'Not found'})
 
     def do_POST(self):
-        if self.path not in ('/api/admin/policy', '/api/device/status', '/api/device/activity', '/api/browser/activity'):
+        if self.path not in ('/api/admin/policy', '/api/admin/usage/reset', '/api/device/status', '/api/device/activity', '/api/browser/activity'):
             return self.reply(404, {'error': 'Not found'})
-        if not self.authorized(ADMIN if self.path == '/api/admin/policy' else ACTIVITY if self.path == '/api/device/activity' else BROWSER if self.path == '/api/browser/activity' else DEVICE):
+        if not self.authorized(ADMIN if self.path in ('/api/admin/policy', '/api/admin/usage/reset') else ACTIVITY if self.path == '/api/device/activity' else BROWSER if self.path == '/api/browser/activity' else DEVICE):
             return
         try:
             data = self.body()
             if not isinstance(data, dict):
                 raise ValueError('Expected an object')
+            if self.path == '/api/admin/usage/reset':
+                if set(data) != {'revision'} or type(data['revision']) is not int:
+                    raise ValueError('Supply the current settings revision')
+                with LOCK, sqlite3.connect(DB) as conn:
+                    config = json.loads(conn.execute('SELECT payload FROM state WHERE id=1').fetchone()[0])
+                    if data['revision'] != config['revision']:
+                        return self.reply(409, {'error': 'Settings changed. Reload before resetting counters.'})
+                    if config['revision'] >= 2**53 - 2:
+                        raise ValueError('Revision limit reached')
+                    now = datetime.datetime.now(datetime.timezone.utc)
+                    reset_usage_counters(conn, now)
+                    config['revision'] += 1
+                    conn.execute('UPDATE state SET payload=? WHERE id=1', (json.dumps(config),))
+                return self.reply(200, {'ok': True, 'revision': config['revision']})
             if self.path == '/api/browser/activity':
                 domain = validate_browser_heartbeat(data)
                 with LOCK, sqlite3.connect(DB) as conn:

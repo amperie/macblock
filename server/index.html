@@ -28,7 +28,7 @@
       <section><h2>Add an app</h2><p>Use its exact macOS signing identifier. Additions start allowed.</p><form id="add"><label for="name">App name</label><input id="name" required maxlength="80" placeholder="Minecraft"><label for="bundle">Signing identifier</label><input id="bundle" required placeholder="com.example.application"><button class="secondary">Add to list</button></form></section>
     </div>
     <div id="panel-monitoring" role="tabpanel" aria-labelledby="tab-monitoring" tabindex="0" hidden>
-      <div class="line page-title"><div><h2>App activity</h2><p>Foreground app time, at a glance.</p></div><button id="usage-refresh" class="secondary">Refresh monitoring</button></div>
+      <div class="line page-title"><div><h2>App activity</h2><p>Foreground app time, at a glance.</p></div><div class="line"><button id="usage-refresh" class="secondary">Refresh monitoring</button><button id="usage-reset" type="button" class="secondary">Reset usage counters</button></div></div>
       <div class="metrics">
         <section><span class="eyebrow">APP TIME TODAY</span><strong id="today-total" class="metric">—</strong><small id="today-date">Waiting for usage data</small></section>
         <section><span class="eyebrow">PAST 7 DAYS</span><strong id="week-total" class="metric">—</strong><small>Foreground app time</small></section>

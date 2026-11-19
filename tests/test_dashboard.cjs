@@ -154,5 +154,30 @@ const responseFor = path => path === '/api/admin/usage' ? usage() :
   };
   await get('save').onclick();
   assert.equal(run('dirty'), false);
+  run('state = {policy: {schemaVersion:1, revision:8, apps:[]}}; dirty = true; window.confirm = () => { throw Error("Unexpected confirmation"); }');
+  await get('usage-reset').onclick();
+  assert.match(get('message').textContent, /Save or discard/);
+  run('dirty = false; window.confirm = () => false');
+  let resets = 0;
+  fetchImpl = async (path, options) => {
+    if (path === '/api/admin/usage/reset') {
+      resets++;
+      assert.equal(options.method, 'POST');
+      assert.deepEqual(JSON.parse(options.body), {revision:8});
+      return {ok:true,json:async()=>({ok:true,revision:9})};
+    }
+    if (path === '/api/admin/usage') return {ok:true,json:async()=>({...usage(),apps:[],websites:[]})};
+    if (path === '/api/admin/state') return {ok:true,json:async()=>({policy:{schemaVersion:1,revision:9,apps:[]}})};
+    return {ok:true,json:async()=>responseFor(path)};
+  };
+  await get('usage-reset').onclick();
+  assert.equal(resets,0,'Cancelling must leave counters alone');
+  run('window.confirm = () => true');
+  await get('usage-reset').onclick();
+  assert.equal(resets,1);
+  assert.equal(run('state.policy.revision'),9);
+  assert.equal(get('today-total').textContent,'0 min');
+  assert.equal(get('week-total').textContent,'0 min');
+  assert.match(get('message').textContent,/Usage counters reset/);
   console.log('Dashboard regression checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

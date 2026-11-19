@@ -19,7 +19,7 @@ class AgentValidationTests(unittest.TestCase):
         # Exercise the production enforcement function without installing a daemon.
         harness = Path(cls.tmp.name) / 'main.swift'
         source = Path('agent/main.swift').read_text().split('if CommandLine.arguments.contains("--check-schedule")')[0]
-        harness.write_text(source + '\nlet p = try decoder.decode(Policy.self, from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))\ntry p.validate()\nif CommandLine.arguments.contains("--identifiers") { print(blockedAppIdentifiers(p).sorted().joined(separator: ",")) } else { print(enforce(p)) }\n')
+        harness.write_text(source + '\nlet p = try decoder.decode(Policy.self, from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))\ntry p.validate()\nif CommandLine.arguments.contains("--fresh-quota") { trustedTime = (Date(), ProcessInfo.processInfo.systemUptime); lastQuotaSyncUptime = ProcessInfo.processInfo.systemUptime }\nif CommandLine.arguments.contains("--identifiers") { print(blockedAppIdentifiers(p).sorted().joined(separator: ",")) } else { print(enforce(p)) }\n')
         cls.harness = str(Path(cls.tmp.name) / 'enforce-once')
         subprocess.run(['swiftc', '-module-cache-path', str(Path(cls.tmp.name) / 'modules'),
                         str(harness), '-framework', 'Security', '-o', cls.harness], check=True, capture_output=True)
@@ -103,6 +103,25 @@ class AgentValidationTests(unittest.TestCase):
         app['blocked'] = True
         policy['overrides'] = {identifier: '2099-01-01T00:00:00.000Z'}
         self.assertEqual(blocked(), identifier, 'An explicit block must survive a temporary allowance')
+
+    def test_updated_quota_limits_block_and_unblock(self):
+        import datetime
+        bid = 'com.example.limited'
+        day = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+        path = Path(self.tmp.name) / 'quota-update.json'
+        for per_app in [False, True]:
+            for minutes, blocked in [(20,True),(45,False),(15,True)]:
+                state = dict(enabled=True,bundleId=bid,usedSeconds=1800,
+                    limitSeconds=minutes*60,exceeded=1800>=minutes*60,monitoringFresh=True,day=day)
+                policy = dict(schemaVersion=1,revision=5,enforcementTimeZone='UTC',
+                    apps=[dict(name='Limited',bundleId=bid,blocked=False)])
+                if per_app:
+                    policy.update(appRules={bid:dict(schedule=dict(enabled=False,start='21:00',end='07:00'),minutes=minutes)},appQuotaStates={bid:state})
+                else:
+                    policy.update(quota=dict(enabled=True,bundleId=bid,minutes=minutes),quotaState=state)
+                path.write_text(json.dumps(policy))
+                result = subprocess.check_output([self.harness,str(path),'--identifiers','--fresh-quota'],text=True).strip()
+                self.assertEqual(result,bid if blocked else '',(per_app,minutes))
 
     def test_schedule_rejects_signed_or_non_ascii_hours(self):
         for start in ['+1:00', '-0:00', '21:00\n', '٢١:00']:

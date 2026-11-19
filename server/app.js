@@ -286,6 +286,14 @@ async function loadUsage() {
   renderUsageCharts();
 }
 $('usage-refresh').onclick = action(refreshMonitoring);
+$('usage-reset').onclick = action(async () => {
+  if (dirty) throw Error('Save or discard your changes before resetting counters.');
+  if (!window.confirm('Reset ALL app and website usage totals to zero, including today’s daily-limit usage? This clears daily and weekly totals for all connected Macs. Session history and blocking rules are kept.')) return;
+  await api('/api/admin/usage/reset', {revision: state.policy.revision});
+  await load();
+  await refreshMonitoring();
+  $('message').textContent = 'Usage counters reset. Daily limits will be reevaluated on the Mac’s next settings update.';
+});
 
 function updateSaveState() {
   $('save-state').textContent = dirty ? 'Unsaved changes' : 'Settings up to date';
