@@ -160,6 +160,9 @@ struct Settings: Decodable {
     }
 }
 enum Failure: Error { case invalidPolicy, invalidSettings, serverRejected, timeout, rollback }
+// Packaging substitutes this placeholder in a staging copy, never in source.
+let buildVersion = "__ORBIT_BUILD_VERSION__"
+let daemonVersion = buildVersion.hasPrefix("__") ? "0.3.0-dev" : buildVersion
 let decoder = JSONDecoder()
 struct RuntimeOptions {
     var development = false
@@ -432,9 +435,15 @@ DispatchQueue.global(qos: .utility).async {
             if options.development { log("Sync failed (\(error)); cached policy remains active") }
         }
         policyLock.lock()
-        let report: [String: Any] = ["hostname": ProcessInfo.processInfo.hostName, "revision": active?.revision ?? 0, "agentVersion": options.development ? (options.dryRun ? "0.2.0-dev-dry-run" : "0.2.0-dev-enforce") : "0.2.0", "lastError": String([syncError, enforcementError].filter { !$0.isEmpty }.joined(separator: "; ").prefix(500))]
+        let report: [String: Any] = ["hostname": ProcessInfo.processInfo.hostName, "revision": active?.revision ?? 0, "agentVersion": options.development ? (options.dryRun ? "0.2.0-dev-dry-run" : "0.2.0-dev-enforce") : daemonVersion, "lastError": String([syncError, enforcementError].filter { !$0.isEmpty }.joined(separator: "; ").prefix(500))]
         policyLock.unlock()
-        do { _ = try request(settings, "/api/device/status", body: JSONSerialization.data(withJSONObject: report)) } catch { }
+        do {
+            _ = try request(settings, "/api/device/status", body: JSONSerialization.data(withJSONObject: report))
+            if !options.development {
+                let receipt: [String: Any] = ["pid": getpid(), "version": daemonVersion, "at": Date().timeIntervalSince1970]
+                try JSONSerialization.data(withJSONObject: receipt).write(to: root.appendingPathComponent("health.json"), options: .atomic)
+            }
+        } catch { }
         policyLock.lock()
         let hasQuota = active?.quota?.enabled == true || (active?.appRules ?? [:]).values.contains(where: { $0.minutes != nil })
         policyLock.unlock()

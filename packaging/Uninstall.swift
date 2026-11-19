@@ -35,7 +35,12 @@ let installedFiles = [
     "/Library/PrivilegedHelperTools/orbit-agent",
     "/usr/local/libexec/orbit-foreground",
     "/usr/local/libexec/orbit-setup",
-    "/usr/local/libexec/orbit-uninstall"
+    "/usr/local/libexec/orbit-uninstall",
+    "/Library/PrivilegedHelperTools/orbit-updater",
+    "/usr/local/libexec/orbit-updater",
+    "/Library/LaunchDaemons/com.side-forge.orbit.updater.plist",
+    "/Library/Application Support/OrbitUpdates/bootstrap/update-bootstrap.json",
+    "/Library/Application Support/OrbitUpdates/bootstrap/installed-version.json"
 ]
 
 func userFiles(home: String, purge: Bool) -> [String] {
@@ -44,7 +49,8 @@ func userFiles(home: String, purge: Bool) -> [String] {
                  home + "/Library/Application Support/Orbit/Orbit-Chrome.mobileconfig"]
     if purge {
         paths += [home + "/Library/Application Support/Orbit/monitor-settings.json",
-                  home + "/Library/Application Support/Orbit/activity-queue.json"]
+                  home + "/Library/Application Support/Orbit/activity-queue.json",
+                  home + "/Library/Application Support/Orbit/monitor-health.json"]
     }
     return paths
 }
@@ -102,6 +108,12 @@ func removeChromeProfiles(users: [String], execute: (String, [String]) throws ->
 
 func removeInstallation(purge: Bool) throws {
     guard getuid() == 0 else { throw RemovalError.message("Uninstall requires administrator authorization") }
+    try stopService("system/com.side-forge.orbit.updater")
+    if FileManager.default.fileExists(atPath: "/Library/PrivilegedHelperTools/orbit-updater") {
+        try command("/Library/PrivilegedHelperTools/orbit-updater", ["--recover-only"])
+    } else if FileManager.default.fileExists(atPath: "/Library/Application Support/OrbitUpdates/transaction") {
+        throw RemovalError.message("Pending update from an older updater. Recover it with that version before upgrading or uninstalling.")
+    }
     // Discover every local user's tracker, including users who are logged out.
     // No root process writes or removes anything inside a user's home.
     let users = try command("/usr/bin/dscl", [".", "-list", "/Users", "UniqueID"], capture: true)
@@ -144,7 +156,7 @@ func removeInstallation(purge: Bool) throws {
                   (info.st_mode & 0o022) == 0 else {
                 throw RemovalError.message("Unsafe system settings directory; refusing to follow links or delete its contents")
             }
-            for name in ["settings.json", "policy.json"] { try removeFile(directory + "/" + name) }
+            for name in ["settings.json", "policy.json", "health.json"] { try removeFile(directory + "/" + name) }
         } else if errno != ENOENT { throw RemovalError.message("Cannot inspect system settings directory") }
         try removeFile("/var/log/orbit.log")
     }
@@ -160,6 +172,7 @@ func removeInstallation(purge: Bool) throws {
     } else {
         print("CHROME CLEANUP REQUIRED: Orbit profile removal could not be confirmed (it may be absent or MDM-managed). Check System Settings > General > Device Management and remove Orbit Chrome Browser Policy, or ask the MDM administrator. Restart Chrome and remove Orbit at chrome://extensions if it remains.")
     }
+    print("Updater disabled. Its trust configuration and anti-rollback state are preserved for future reinstallations.")
     print("VPS history and Safari were not changed. Chrome browsing data was preserved.")
 }
 

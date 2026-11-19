@@ -57,3 +57,10 @@ Troubleshooting:
   sudo launchctl print system/com.side-forge.orbit.agent
   launchctl print gui/$(id -u)/com.side-forge.orbit.foreground
   sudo tail -n 50 /var/log/orbit.log
+
+Signed automatic updates:
+  The package includes an updater for the agent and bundled monitor only.
+  It checks hourly when a release-signing public key has been provisioned;
+  builds without a key leave automatic updates disabled. Update settings and
+  anti-rollback state are preserved through reinstalls and uninstall. See
+  updater/README.md in the repository for enrollment and required real-Mac tests.

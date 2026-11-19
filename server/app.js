@@ -109,13 +109,14 @@ function render() {
     const caption = document.createElement('span'); caption.textContent = app.blocked ? 'Blocked' : 'Allowed';
     toggle.onchange = () => { app.blocked = toggle.checked; dirty = true; caption.textContent = app.blocked ? 'Blocked' : 'Allowed'; $('message').textContent = 'Unsaved changes'; };
     label.append(toggle, caption);
-    const remove = document.createElement('button'); remove.textContent = 'Remove'; remove.className = 'secondary'; remove.setAttribute('aria-label', `Remove ${app.name}`);
+    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Delete'; remove.className = 'secondary'; remove.setAttribute('aria-label', `Delete ${app.name} from blocking list`);
     remove.onclick = () => {
       state.policy.apps = state.policy.apps.filter(a => a !== app);
-      if (state.policy.appRules) delete state.policy.appRules[app.bundleId];
-      if (state.policy.overrides) delete state.policy.overrides[app.bundleId];
+      for (const key of ['appRules', 'overrides', 'appSchedules', 'appQuotaStates']) {
+        if (state.policy[key]) delete state.policy[key][app.bundleId];
+      }
       if (state.policy.quota?.bundleId === app.bundleId) state.policy.quota.enabled = false;
-      dirty = true; render(); $('message').textContent = 'Unsaved changes'; };
+      dirty = true; render(); $('message').textContent = `${app.name} removed from the blocking list. Save changes to apply.`; };
     row.append(text, label, remove); $('apps').append(row);
   }
   renderPerAppRules();

@@ -126,5 +126,33 @@ const responseFor = path => path === '/api/admin/usage' ? usage() :
   assert.equal(location.hash, '');
   assert.equal(get('token').value, '');
   assert.equal(get('message').textContent, 'Unauthorized');
+  run(`state = {policy: {schemaVersion:1, revision:3,
+    apps:[{name:'Signal',bundleId:'org.whispersystems.signal-desktop',blocked:true}],
+    quota:{enabled:true,bundleId:'org.whispersystems.signal-desktop',minutes:60},
+    appRules:{'org.whispersystems.signal-desktop':{minutes:30,schedule:{enabled:false,start:'21:00',end:'07:00'}}},
+    overrides:{'org.whispersystems.signal-desktop':'2099-01-01T00:00:00Z'},
+    appSchedules:{'org.whispersystems.signal-desktop':{}},
+    appQuotaStates:{'org.whispersystems.signal-desktop':{}}}}; dirty = false; render()`);
+  const deleteButton = get('apps').children[0].children[2];
+  assert.equal(deleteButton.textContent, 'Delete');
+  assert.equal(deleteButton.type, 'button');
+  deleteButton.onclick();
+  assert.equal(run('state.policy.apps.length'), 0);
+  assert.equal(get('apps').children.length, 0);
+  assert.equal(run('dirty'), true);
+  assert.equal(run('state.policy.quota.enabled'), false);
+  for (const field of ['appRules', 'overrides', 'appSchedules', 'appQuotaStates']) {
+    assert.equal(run(`Object.keys(state.policy.${field}).length`), 0);
+  }
+  assert.match(get('message').textContent, /Save changes/);
+  fetchImpl = async (path, options) => {
+    assert.equal(path, '/api/admin/policy');
+    const policy = JSON.parse(options.body);
+    assert.deepEqual(policy.apps, []);
+    assert.equal(policy.quota.enabled, false);
+    return {ok:true,json:async()=>({...policy,revision:4})};
+  };
+  await get('save').onclick();
+  assert.equal(run('dirty'), false);
   console.log('Dashboard regression checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

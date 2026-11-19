@@ -208,6 +208,33 @@ func savedUserSettings(home: String, serverURL: String) -> [String: String] {
     return result
 }
 
+func prepareInstall() throws {
+    guard getuid() == 0 else { throw SetupError.message("Installer preparation requires administrator authorization") }
+    let service = "system/com.side-forge.orbit.updater"
+    if (try? run("/bin/launchctl", ["print", service], capture: true)) != nil {
+        try run("/bin/launchctl", ["bootout", service])
+    }
+    if FileManager.default.fileExists(atPath: "/Library/PrivilegedHelperTools/orbit-updater") {
+        try run("/Library/PrivilegedHelperTools/orbit-updater", ["--recover-only"])
+    } else if FileManager.default.fileExists(atPath: "/Library/Application Support/OrbitUpdates/transaction") {
+        throw SetupError.message("Pending update from an older updater. Recover it with that version before upgrading or uninstalling.")
+    }
+}
+
+func startUpdater(command: (String, [String], Bool) throws -> String = { try run($0, $1, capture: $2) }) throws {
+    let enabled = try command("/Library/PrivilegedHelperTools/orbit-updater", ["--setup"], true) == "enabled"
+    if enabled {
+        _ = try command("/bin/launchctl", ["enable", "system/com.side-forge.orbit.updater"], false)
+        _ = try command("/bin/launchctl", ["bootstrap", "system", "/Library/LaunchDaemons/com.side-forge.orbit.updater.plist"], false)
+        print("Automatic signed updates enabled (hourly checks).")
+    } else {
+        // Merely omitting bootstrap does not prevent a LaunchDaemon plist from
+        // loading at the next reboot. Persist an explicit disabled override.
+        _ = try command("/bin/launchctl", ["disable", "system/com.side-forge.orbit.updater"], false)
+        print("Automatic updates disabled: no release-signing public key configured.")
+    }
+}
+
 func configure(_ username: String, reuseDevice: Bool = false) throws {
     guard getuid() == 0, let user = getpwnam(username), user.pointee.pw_uid >= 501 else {
         throw SetupError.message("Configuration requires administrator authorization and a regular target user")
@@ -257,6 +284,7 @@ func configure(_ username: String, reuseDevice: Bool = false) throws {
     let data = try JSONEncoder().encode(MonitorCredentials(serverURL: credentials.serverURL, activityToken: credentials.activityToken))
     try run("/bin/launchctl", ["asuser", String(uid), "/usr/bin/sudo", "-H", "-u", username,
         "/usr/local/libexec/orbit-setup", "--monitor-user"], input: data)
+    try startUpdater()
 }
 
 func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
@@ -357,7 +385,7 @@ func install(_ package: String) throws {
     let file = directory.appendingPathComponent("credentials.json")
     try privateJSON(["serverURL": serverURL, "deviceToken": device, "activityToken": activity, "browserToken": browserToken], at: file.path)
     let configureFlag = reuseDevice ? " --configure-reusing " : " --configure "
-    let command = "/usr/sbin/installer -pkg " + shellQuote(stagedPackage.path) + " -target / && /usr/local/libexec/orbit-setup" + configureFlag + shellQuote(username) + " < " + shellQuote(file.path)
+    let command = shellQuote(helper.path) + " --prepare-install && /usr/sbin/installer -pkg " + shellQuote(stagedPackage.path) + " -target / && /usr/local/libexec/orbit-setup" + configureFlag + shellQuote(username) + " < " + shellQuote(file.path)
     // Pass the command as argv, not interpolated AppleScript. macOS requests
     // administrator credentials even when the console user is a standard user.
     try run("/usr/bin/osascript", ["-e", script, command])
@@ -378,6 +406,7 @@ umask(0o077)
 do {
     let args = CommandLine.arguments
     if args.count == 3 && args[1] == "--install" { try install(args[2]) }
+    else if args.count == 2 && args[1] == "--prepare-install" { try prepareInstall() }
     else if args.count == 2 && args[1] == "--saved-device-info" {
         let metadata = try deviceMetadata(savedDevice())
         FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: metadata))

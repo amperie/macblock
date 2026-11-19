@@ -157,3 +157,8 @@ update before installing the updated agents.
 Mac agents normally check for policy updates and report their connection every
 60 seconds. When daily limits are enabled, they check every 30 seconds. Network
 request time adds to these intervals; app enforcement continues every two seconds.
+
+Signed automatic agent/monitor updates are implemented on the updater branch.
+They require a manually enrolled signing public key and an accessible signed
+release feed; builds without a key keep automatic installation disabled. See
+[updater/README.md](updater/README.md) for setup, recovery, and real-Mac tests.
