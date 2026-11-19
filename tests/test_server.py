@@ -142,8 +142,15 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(self.call('/api/device/status', s.DEVICE, dict(revision=2, agentVersion='test', lastError=''))[0], 200)
         self.assertEqual(self.call('/api/admin/state', s.ADMIN)[1]['device']['report']['revision'], 2)
 
+    def test_safari_block_policy_is_saved_and_delivered(self):
+        app = dict(name='Safari', bundleId='com.apple.Safari', blocked=True)
+        code, updated = self.call('/api/admin/policy', s.ADMIN, dict(revision=1, apps=[app]))
+        self.assertEqual(code, 200)
+        self.assertEqual(updated['apps'], [app])
+        self.assertEqual(self.call('/api/device/policy', s.DEVICE)[1]['apps'], [app])
+
     def test_invalid_rules_preserve_previous_policy(self):
-        for bid in ['com.apple.finder', 'com.side-forge.orbit.agent', 'invalid', 'com.example.app']:
+        for bid in ['com.apple.Safari.helper', 'COM.APPLE.Finder', 'com.apple.finder', 'com.side-forge.orbit.agent', 'invalid', 'com.example.app']:
             rule = dict(name='App', bundleId=bid, blocked=True)
             apps = [rule, rule] if bid == 'com.example.app' else [rule]
             self.assertEqual(self.call('/api/admin/policy', s.ADMIN, dict(revision=1, apps=apps))[0], 400)

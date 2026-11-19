@@ -69,6 +69,10 @@ class AgentValidationTests(unittest.TestCase):
         self.check('--check-policy', base, True)
         self.check('--check-policy', dict(base, revision=2**53), False)
         for identifier, name, valid in [('com.operasoftware.Opera', 'Opera', True),
+                                        ('com.apple.Safari', 'Safari', True),
+                                        ('com.apple.Safari.helper', 'Safari helper', False),
+                                        ('COM.APPLE.Finder', 'Finder', False),
+                                        ('com.side-forge.orbit.agent', 'Orbit', False),
                                         ('com.apple.finder', 'Finder', False),
                                         ('com.example.app', '   ', False)]:
             self.check('--check-policy', dict(base, apps=[dict(name=name, bundleId=identifier, blocked=True)]), valid)

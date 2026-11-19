@@ -116,7 +116,7 @@ struct Policy: Codable {
             guard !app.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, app.name.unicodeScalars.count <= 80,
                   app.bundleId.count <= 255,
                   app.bundleId.range(of: "^[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)+$", options: .regularExpression) != nil,
-                  !app.bundleId.lowercased().hasPrefix("com.apple."),
+                  (app.bundleId == "com.apple.Safari" || !app.bundleId.lowercased().hasPrefix("com.apple.")),
                   !app.bundleId.lowercased().hasPrefix("com.side-forge.orbit."),
                   seen.insert(app.bundleId).inserted else { throw Failure.invalidPolicy }
         }

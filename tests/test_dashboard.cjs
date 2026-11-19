@@ -32,6 +32,15 @@ const responseFor = path => path === '/api/admin/usage' ? usage() :
   fetchImpl = async path => ({ok: true, json: async () => responseFor(path)});
   get('token').value = 'test-token';
   await get('connect').onclick();
+  get('name').value = 'Safari';
+  get('bundle').value = 'com.apple.Safari';
+  await get('add').onsubmit();
+  assert.equal(run('state.policy.apps.some(a => a.bundleId === "com.apple.Safari")'), true);
+  for (const bundle of ['com.apple.finder', 'COM.APPLE.Finder', 'com.apple.Safari.helper', 'com.side-forge.orbit.agent']) {
+    get('bundle').value = bundle;
+    await get('add').onsubmit();
+    assert.equal(run('state.policy.apps.length'), 2, 'Protected apps must remain rejected');
+  }
   get('blocked-domains').value = 'instagram.com\ntiktok.com';
   get('blocked-domains').onchange();
   assert.equal(run('state.policy.blockedDomains[0]'), 'instagram.com');

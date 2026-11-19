@@ -17,7 +17,11 @@ Orbit installer — macOS 13 or later, Intel or Apple Silicon
 No Git, Python, Xcode or compiler is needed on the target Mac. The package
 contains no credentials. Credentials are stored privately on the installed Mac.
 The blocking daemon runs system-wide; tracking runs only for the chosen user.
-Re-run the setup launcher to update binaries and provision credentials again.
+Re-run the setup launcher to update binaries. After administrator authorization,
+it reuses valid saved device credentials and matching user monitor/Chrome settings.
+Only missing or invalid values are requested. Chrome profile approval may still
+be required. Saved credentials are format-checked, not tested against the VPS;
+if you rotated a token on the VPS, update the corresponding saved settings first.
 
 This initial release is NOT Apple Developer signed or notarized. macOS may
 block the launcher/package. If you trust the download, use the relevant

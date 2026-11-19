@@ -191,7 +191,7 @@ def validate_apps(apps):
         bid = app['bundleId']
         if not isinstance(bid, str) or not re.fullmatch(r'[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+', bid) or len(bid) > 255:
             raise ValueError('Invalid bundle identifier')
-        if bid.lower().startswith(('com.apple.', 'com.side-forge.orbit.')):
+        if bid != 'com.apple.Safari' and bid.lower().startswith(('com.apple.', 'com.side-forge.orbit.')):
             raise ValueError('System and Orbit apps cannot be blocked')
         if bid in seen or type(app['blocked']) is not bool:
             raise ValueError('Duplicate app or invalid block switch')

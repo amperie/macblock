@@ -24,6 +24,23 @@ class InstallerSetupTests(unittest.TestCase):
         subprocess.run(['swiftc', '-module-cache-path', str(Path(cls.temporary.name) / 'cache'),
                         str(harness), '-o', cls.harness], check=True, capture_output=True)
 
+        reuse = Path(cls.temporary.name) / 'reuse.swift'
+        reuse.write_text(source + r'''
+do {
+    let result: [String: String]
+    if CommandLine.arguments[1] == "metadata" {
+        let fields = try JSONSerialization.jsonObject(with: readInputData()) as! [String: String]
+        result = try deviceMetadata(fields)
+    } else {
+        result = savedUserSettings(home: CommandLine.arguments[1], serverURL: CommandLine.arguments[2])
+    }
+    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: result))
+} catch { exit(1) }
+''')
+        cls.reuse = str(Path(cls.temporary.name) / 'reuse-check')
+        subprocess.run(['swiftc', '-module-cache-path', str(Path(cls.temporary.name) / 'cache'),
+                        str(reuse), '-o', cls.reuse], check=True, capture_output=True)
+
     @classmethod
     def tearDownClass(cls):
         cls.temporary.cleanup()
@@ -64,6 +81,41 @@ class InstallerSetupTests(unittest.TestCase):
             result = subprocess.run([self.binary, '--check-chrome-profile', bad],
                                     input=payload.encode(), capture_output=True)
             self.assertNotEqual(result.returncode, 0)
+
+    def test_saved_device_probe_requires_admin(self):
+        if os.getuid() == 0:
+            self.skipTest('Requires unprivileged caller')
+        result = subprocess.run([self.binary, '--saved-device-info'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('administrator authorization', result.stderr)
+
+    def test_saved_metadata_never_exports_device_token(self):
+        for token in ['d' * 40, 'bad', '']:
+            fields = dict(serverURL='https://CUSTOM.example:443/', deviceToken=token)
+            result = subprocess.check_output([self.reuse, 'metadata'], input=json.dumps(fields), text=True)
+            metadata = json.loads(result)
+            self.assertEqual(metadata, dict(serverURL='https://custom.example', reuseDevice='true' if len(token) == 40 else 'false'))
+            self.assertNotIn('deviceToken', metadata)
+            if token:
+                self.assertNotIn(token, result)
+
+    def test_reuses_only_valid_user_credentials_for_matching_server(self):
+        import plistlib
+        with tempfile.TemporaryDirectory() as home:
+            directory = Path(home) / 'Library/Application Support/Orbit'
+            directory.mkdir(parents=True)
+            def saved(server='https://orbit.side-forge.com'):
+                return json.loads(subprocess.check_output([self.reuse, home, server], text=True))
+            self.assertEqual(saved(), {})
+            (directory / 'monitor-settings.json').write_text(json.dumps(dict(serverURL='https://orbit.side-forge.com', activityToken='a' * 40)))
+            profile = subprocess.check_output([self.binary, '--check-chrome-profile', 'a' * 32], input=json.dumps(dict(serverURL='https://orbit.side-forge.com', browserToken='b' * 40)).encode())
+            (directory / 'Orbit-Chrome.mobileconfig').write_bytes(profile)
+            self.assertEqual(saved(), dict(activityToken='a' * 40, extensionID='a' * 32, browserToken='b' * 40))
+            self.assertEqual(saved('https://other.example'), {})
+            (directory / 'monitor-settings.json').write_text('corrupt')
+            self.assertEqual(set(saved()), {'extensionID', 'browserToken'})
+            (directory / 'Orbit-Chrome.mobileconfig').write_bytes(b'corrupt')
+            self.assertEqual(saved(), {})
 
     def test_configuration_rejects_unprivileged_caller(self):
         import os
@@ -117,6 +169,8 @@ class InstallerSetupTests(unittest.TestCase):
             check(1)
             settings.write_text(json.dumps(dict(serverURL='https://other.example', deviceToken='d' * 40)))
             check(1)
+            settings.write_text(json.dumps(dict(serverURL='https://orbit.side-forge.com', deviceToken='invalid-old-token')))
+            check(0)  # A replacement token may repair settings for the same server.
             settings.write_text(json.dumps(dict(serverURL='https://ORBIT.side-forge.com:443/', deviceToken='d' * 40)))
             check(0)
 
