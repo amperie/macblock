@@ -11,6 +11,30 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+# Embedded to remain compatible with the VPS four-file release allowlist.
+PRIVACY_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orbit Website Filter Privacy Policy</title><link rel="stylesheet" href="/style.css"></head>
+<body><main><header><h1>Orbit privacy policy</h1><p>Orbit Website Filter (experimental) · Updated November 19, 2026</p></header>
+<section><h2>Purpose and operator</h2><p>Orbit is a family-control tool operated by Pablo Salanova. Its browser extension blocks parent-configured websites and supplies domain-level website usage estimates to the configured Orbit parent dashboard. It requires configuration by a parent or device administrator.</p></section>
+<section><h2>Information the browser extension handles</h2><ul>
+<li>Administrator-provided server address and a browser authentication token used to communicate with that server.</li>
+<li>A randomly generated, persistent identifier for each browser installation.</li>
+<li>Approximately once per minute, the active tab's hostname when Chrome is focused and the device is active. A report with no hostname is sent when no eligible active website is detected. The server records receipt times and estimates time spent on each domain.</li>
+<li>The extension reads the active tab URL locally to extract the hostname. It does not transmit full URLs, paths, query strings, or page titles. It does not collect page content, messages, passwords entered on websites, payment details, keystrokes, mouse movements, or clicks.</li>
+<li>Locally stored policy revision, last successful update time, and blocking rules.</li></ul>
+<p>Active/idle and browser-focus checks support usage estimates; they do not provide exact screen time. The browser token is an Orbit service credential, not a website password.</p></section>
+<section><h2>Optional Mac components</h2><p>If the separate Orbit Mac agent and foreground monitor are installed, they also send application identifiers, application names, foreground-session times, and operational status to the Orbit server. These components are separate from the Chrome extension.</p></section>
+<section><h2>Use and sharing</h2><p>Information is used to enforce parent-selected restrictions, produce usage reports, and operate the service. Reports are accessible to anyone holding the parent dashboard's administrator credential. Extension reports are transmitted over HTTPS to the administrator-configured Orbit server; there is no separate advertising or analytics destination in the extension.</p>
+<p>Orbit does not sell personal data, use it for advertising, or use it to determine creditworthiness or lending eligibility. The configured hosting provider, reverse proxy, or CDN may process connection metadata, including IP addresses, and may keep access logs. Logging and infrastructure retention depend on the deployment; Orbit does not derive GPS location.</p>
+<p>Orbit's use and transfer of information received from Google APIs adheres to the Chrome Web Store User Data Policy, including the Limited Use requirements. Data is used only for the described family-control functionality.</p></section>
+<section><h2>Storage and retention</h2><p>Usage records are stored in the configured server's database. Usage-history retention defaults to 90 days and can be changed by the server administrator. Old usage records and browser-session records older than one day are removed when server cleanup runs. Blocking configuration and credentials persist until changed or deleted.</p>
+<p>The extension retains its local installation identifier, update metadata, and blocking rules until its storage is cleared or the extension is removed. Managed configuration remains until its management policy is removed. Server backups, infrastructure logs, and downloaded reports have separate retention controlled by the server administrator; removing the extension or uninstalling Orbit does not delete those copies.</p></section>
+<section><h2>Choices, access, and deletion</h2><p>Contact the parent or administrator who configured your Orbit installation to request access, correction, or deletion of usage information, to change restrictions, or to stop monitoring. Managed installations may require administrator approval for removal. The server administrator must arrange server-side deletion and backup cleanup; the uninstaller does not erase server history.</p></section>
+<section><h2>Children and family use</h2><p>Orbit is intended to be configured by a parent or authorized administrator. The person configuring it is responsible for informing monitored users about website blocking and usage reporting and obtaining any required permission before enabling monitoring.</p></section>
+<section><h2>Contact and updates</h2><p>For privacy questions or deletion requests about a particular installation, contact its parent or server administrator directly. For software questions, contact the maintainer through <a href="https://github.com/amperie/macblock/issues">the Orbit project issue tracker</a>. Do not post credentials, children's information, or browsing history in public issues. This policy will be updated when the software's data practices change.</p></section>
+<footer><a href="/">Orbit dashboard</a></footer></main></body></html>"""
+
 LOCK = threading.Lock()
 DB = os.environ.get('ORBIT_DB', 'orbit.sqlite3')
 ADMIN = os.environ.get('ORBIT_ADMIN_TOKEN', '')
@@ -384,6 +408,8 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(body)
 
     def do_GET(self):
+        if self.path.split("?", 1)[0] in ("/privacy", "/privacy/"):
+            return self.reply(200, PRIVACY_HTML, "text/html; charset=utf-8")
         assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
         if self.path in assets:
             name, mime = assets[self.path]

@@ -17,9 +17,13 @@ if not re.fullmatch(r'[a-p]{32}', extension_id):
     raise ValueError('Invalid Chrome extension ID')
 for value in (update_url, server_url):
     parts = urlsplit(value)
+    _ = parts.port  # Reject nonnumeric or out-of-range ports before writing.
     if parts.scheme != 'https' or not parts.hostname or parts.username or parts.password or parts.fragment or any(ch.isspace() for ch in value):
         raise ValueError('HTTPS URL without embedded credentials required')
-if len(token) < 32:
+origin = urlsplit(server_url)
+if origin.path not in ('', '/') or origin.query:
+    raise ValueError('Server URL must be an HTTPS origin without a path or query')
+if not 32 <= len(token) <= 512 or not all(33 <= ord(char) <= 126 for char in token):
     raise ValueError('Invalid browser token')
 
 # Chrome enterprise policy. Browser token is readable by the browser user,
@@ -28,24 +32,37 @@ settings = {
     extension_id: {
         'installation_mode': 'force_installed',
         'update_url': update_url,
-        'policy': {'serverURL': server_url, 'browserToken': token},
     }
 }
 profile = {
     'PayloadType': 'Configuration',
     'PayloadVersion': 1,
+    'PayloadScope': 'System',
     'PayloadIdentifier': 'com.side-forge.orbit.chrome.configuration',
     'PayloadUUID': str(uuid.uuid4()).upper(),
     'PayloadDisplayName': 'Orbit Chrome Browser Policy',
     'PayloadOrganization': 'Orbit',
     'PayloadRemovalDisallowed': False,
     'PayloadContent': [{
-        'PayloadType': 'com.google.Chrome',
+        'PayloadType': 'com.apple.ManagedClient.preferences',
         'PayloadVersion': 1,
         'PayloadIdentifier': 'com.side-forge.orbit.chrome.policy',
         'PayloadUUID': str(uuid.uuid4()).upper(),
         'PayloadDisplayName': 'Chrome managed extension settings',
-        'ExtensionSettings': settings,
+        'PayloadContent': {'com.google.Chrome': {'Forced': [{'mcx_preference_settings': {
+            'ExtensionSettings': settings,
+            'IncognitoModeAvailability': 1,
+            'BrowserGuestModeEnabled': False,
+        }}]}},
+    }, {
+        'PayloadType': 'com.apple.ManagedClient.preferences',
+        'PayloadVersion': 1,
+        'PayloadIdentifier': 'com.side-forge.orbit.chrome.storage',
+        'PayloadUUID': str(uuid.uuid4()).upper(),
+        'PayloadDisplayName': 'Orbit extension configuration',
+        'PayloadContent': {'com.google.Chrome.extensions.' + extension_id: {
+            'Forced': [{'mcx_preference_settings': {'serverURL': server_url, 'browserToken': token}}],
+        }},
     }],
 }
 destination.parent.mkdir(parents=True, exist_ok=True)

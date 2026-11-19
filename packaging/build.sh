@@ -50,4 +50,9 @@ cp packaging/README.txt "$bundle/README.txt"
 chmod 755 "$bundle/OrbitSetup" "$bundle/OrbitUninstall" "$bundle/Install Orbit.command" "$bundle/Uninstall Orbit.command"
 ditto -c -k --keepParent "$bundle" "$output/Orbit-Installer.zip"
 (cd "$output" && shasum -a 256 Orbit-Installer.zip > Orbit-Installer.zip.sha256)
+# Upload this source archive to the Chrome Web Store first. Google supplies
+# the real extension ID; do not use an unpacked/developer ID for deployment.
+(cd browser/chrome && /usr/bin/zip -q "$work/Orbit-Chrome-WebStore.zip" manifest.json background.js managed_schema.json)
+cp "$work/Orbit-Chrome-WebStore.zip" "$output/Orbit-Chrome-WebStore.zip"
 echo "Created $output/Orbit-Installer.zip"
+echo "Chrome Web Store upload: $output/Orbit-Chrome-WebStore.zip"

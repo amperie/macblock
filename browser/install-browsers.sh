@@ -23,8 +23,25 @@ done
 [[ "$chrome_update" == https://* && "$server_url" == https://* ]] || { echo 'HTTPS URLs required' >&2; exit 2; }
 [[ ${#token} -ge 32 ]] || { echo 'Use a distinct browser token of at least 32 characters' >&2; exit 2; }
 [[ "$output" == "/Library/Application Support/Orbit/Browser" ]] || { echo 'Custom output paths are not supported for root-owned secrets' >&2; exit 2; }
-[[ ! -L "$output" ]] || { echo 'Refusing symlinked output directory' >&2; exit 1; }
-install -d -m 700 -o root -g wheel "$output"
+# Validate each parent before creating descendants or changing permissions.
+# Checking only Browser would still follow a user-controlled Orbit symlink.
+/usr/bin/python3 - "$output" <<'PYDIR'
+import os
+import stat
+import sys
+from pathlib import Path
+output = Path(sys.argv[1])
+for path in [output.parent, output]:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        path.mkdir(mode=0o700)
+        info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+        raise SystemExit('Unsafe browser output directory; inspect ownership and permissions')
+# Both directories are now root-owned and cannot be swapped by a standard user.
+os.chmod(output, 0o700)
+PYDIR
 export ORBIT_CHROME_ID="$chrome_id" ORBIT_CHROME_UPDATE="$chrome_update" ORBIT_BROWSER_URL="$server_url" ORBIT_BROWSER_TOKEN="$token" ORBIT_PROFILE_OUTPUT="$output/Orbit-Chrome.mobileconfig"
 /usr/bin/python3 "$(dirname "$0")/generate-profile.py"
 chmod 600 "$output/Orbit-Chrome.mobileconfig"

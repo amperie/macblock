@@ -44,6 +44,27 @@ class InstallerSetupTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0 if valid else 1, result.stderr)
                 self.assertNotIn(payload['deviceToken'], result.stdout + result.stderr)
 
+    def test_chrome_profile_uses_system_scope_and_separate_managed_storage(self):
+        import plistlib
+        payload = json.dumps(dict(serverURL='https://orbit.side-forge.com', browserToken='b' * 40))
+        result = subprocess.run([self.binary, '--check-chrome-profile', 'a' * 32],
+                                input=payload.encode(), capture_output=True, check=True)
+        profile = plistlib.loads(result.stdout)
+        self.assertEqual(profile['PayloadScope'], 'System')
+        chromePayload, storagePayload = profile['PayloadContent']
+        self.assertEqual(chromePayload['PayloadType'], 'com.apple.ManagedClient.preferences')
+        self.assertEqual(storagePayload['PayloadType'], 'com.apple.ManagedClient.preferences')
+        chrome = chromePayload['PayloadContent']['com.google.Chrome']['Forced'][0]['mcx_preference_settings']
+        storage = storagePayload['PayloadContent']['com.google.Chrome.extensions.' + 'a' * 32]['Forced'][0]['mcx_preference_settings']
+        self.assertEqual(chrome['IncognitoModeAvailability'], 1)
+        self.assertIs(chrome['BrowserGuestModeEnabled'], False)
+        self.assertEqual(chrome['ExtensionSettings']['a' * 32]['installation_mode'], 'force_installed')
+        self.assertEqual(storage['browserToken'], 'b' * 40)
+        for bad in ['short', 'z' * 32, '../bad', 'a' * 32 + '\n']:
+            result = subprocess.run([self.binary, '--check-chrome-profile', bad],
+                                    input=payload.encode(), capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+
     def test_configuration_rejects_unprivileged_caller(self):
         import os
         if os.getuid() == 0:
@@ -143,7 +164,32 @@ class UninstallerTests(unittest.TestCase):
                         'packaging/Uninstall.swift', '-o', cls.binary], check=True, capture_output=True)
         source = Path('packaging/Uninstall.swift').read_text().split('do {\n    let args = Array(CommandLine.arguments.dropFirst())')[0]
         harness = root / 'main.swift'
-        harness.write_text(source + '\ndo { try removeFile(CommandLine.arguments[1]) } catch { exit(1) }\n')
+        harness.write_text(source + r'''
+do {
+    if CommandLine.arguments[1] == "profile-cleanup" {
+        let mode = CommandLine.arguments[2]
+        var calls: [[String]] = []
+        var listed = 0
+        let result = removeChromeProfiles(users: ["child", "parent"]) { path, arguments in
+            calls.append([path] + arguments)
+            if arguments[0] == "list" {
+                listed += 1
+                if mode == "unknown" { return "malformed" }
+                if mode == "unexpected-shape" {
+                    return "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>error</key><string>Unavailable</string></dict></plist>"
+                }
+                let present = mode == "refused" || (mode != "absent" && listed == 1)
+                let object: [String: Any] = ["_computerlevel": present ? [["ProfileIdentifier": chromeProfileIdentifier]] : []]
+                let data = try PropertyListSerialization.data(fromPropertyList: object, format: .xml, options: 0)
+                return String(data: data, encoding: .utf8)!
+            }
+            return "" // Success exit code alone is insufficient evidence.
+        }
+        let data = try JSONSerialization.data(withJSONObject: ["removed": result, "calls": calls])
+        FileHandle.standardOutput.write(data)
+    } else { try removeFile(CommandLine.arguments[1]) }
+} catch { exit(1) }
+''')
         cls.harness = str(root / 'remove-file')
         subprocess.run(['swiftc', '-module-cache-path', str(root / 'cache'), str(harness), '-o', cls.harness],
                        check=True, capture_output=True)
@@ -166,11 +212,30 @@ class UninstallerTests(unittest.TestCase):
         keep, purge = plan(), plan('--purge')
         self.assertFalse(keep['purgeLocalData'])
         self.assertFalse(keep['touchesVPS'])
+        self.assertTrue(keep['attemptsChromeProfileRemoval'])
+        self.assertEqual(keep['chromeProfileIdentifier'], 'com.side-forge.orbit.chrome.configuration')
+        self.assertFalse(keep['deletesChromeBrowsingData'])
+        self.assertTrue(any(path.endswith('Orbit-Chrome.mobileconfig') for path in keep['userFiles']))
         self.assertTrue(purge['purgeLocalData'])
         self.assertTrue(set(keep['userFiles']) < set(purge['userFiles']))
         self.assertFalse(any(path.endswith('monitor-settings.json') for path in keep['userFiles']))
         self.assertTrue(any(path.endswith('monitor-settings.json') for path in purge['userFiles']))
         self.assertTrue(all('/Orbit/' in path or '/LaunchAgents/com.side-forge.orbit.' in path for path in purge['userFiles']))
+
+    def test_profile_removal_verifies_absence_and_handles_legacy_user_scope(self):
+        for mode in ['removed', 'absent', 'refused', 'unknown', 'unexpected-shape']:
+            with self.subTest(mode=mode):
+                result = json.loads(subprocess.check_output([self.harness, 'profile-cleanup', mode], text=True))
+                self.assertEqual(result['removed'], mode in ['removed', 'absent'])
+                removal = [args for args in result['calls'] if args[1] == 'remove']
+                if mode == 'absent':
+                    self.assertEqual(removal, [])
+                else:
+                    self.assertEqual(len(removal), 3)
+                    self.assertTrue(all('-forced' in args for args in removal))
+                    self.assertTrue(all('com.side-forge.orbit.chrome.configuration' in args for args in removal))
+                    self.assertEqual(removal[1][-2:], ['-user', 'child'])
+                    self.assertEqual(removal[2][-2:], ['-user', 'parent'])
 
     def test_file_removal_does_not_follow_symlinks_or_remove_directories(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -190,6 +255,17 @@ class UninstallerTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == 'darwin' and os.environ.get('ORBIT_TEST_PACKAGE'), 'Set ORBIT_TEST_PACKAGE to verify a built installer')
 class PackagePayloadTests(unittest.TestCase):
+    def test_web_store_archive_contains_only_extension_sources(self):
+        import zipfile
+        archive = Path(os.environ['ORBIT_TEST_PACKAGE']).resolve().with_name('Orbit-Chrome-WebStore.zip')
+        with zipfile.ZipFile(archive) as extension:
+            self.assertEqual(set(extension.namelist()), {'manifest.json', 'background.js', 'managed_schema.json'})
+            for name in extension.namelist():
+                self.assertEqual(extension.read(name), (Path('browser/chrome') / name).read_bytes())
+            manifest = json.loads(extension.read('manifest.json'))
+            self.assertEqual(manifest['manifest_version'], 3)
+            self.assertEqual(manifest['storage']['managed_schema'], 'managed_schema.json')
+
     def test_universal_payload_permissions_and_checksum(self):
         import hashlib
         import os

@@ -54,7 +54,7 @@ See [dev/README.md](dev/README.md) for more detail.
 | Daily/weekly website usage history | Experimental | Active-tab/idle sampling; browser extension required; approximate time |
 | Foreground activity monitoring | Implemented, user LaunchAgent | Swift tests; not tamper-resistant |
 | Website domain configuration | Implemented | Server tests |
-| Chrome extension filtering | Experimental | Local unpacked installation/manual verification required |
+| Chrome extension filtering | Experimental | Installer prepares system force-install profile; approval and published Web Store ID required |
 | Safari WebExtension | Experimental | Xcode signing, enabling, real Safari verification required |
 | Browser protection health | Reports unverified | No authenticated extension attestation |
 | VPS deployment and auto-updates | Not automated | Requires separate deployment |
@@ -77,7 +77,7 @@ Download **Orbit-Installer.zip** from [repository Releases](https://github.com/a
 
 ### Source installation (alternative)
 
-To uninstall the package or source installation, open **Uninstall Orbit.command** in the installer download. It requests administrator authorization, removes services for all local users, and offers to keep or delete local settings and cached data. VPS history and browser extensions remain. New installations also include `/usr/local/libexec/orbit-uninstall --prompt`.
+To uninstall the package or source installation, open **Uninstall Orbit.command** in the installer download. It requests administrator authorization, removes services for all local users, and offers to keep or delete local settings and cached data. VPS history remains. Chrome profile removal is attempted automatically; if macOS refuses, follow the Device Management cleanup prompt. Restart Chrome and remove the extension if it remains. Safari is unchanged. New installations also include `/usr/local/libexec/orbit-uninstall --prompt`.
 
 The agent and foreground monitor default to `https://orbit.side-forge.com` when `serverURL` is omitted. Create `agent/settings.json` containing `deviceToken`, then run `sudo bash agent/install.sh`. For foreground telemetry, create `agent/monitor-settings.json` with `activityToken`, then run `bash agent/install-monitor.sh` as the logged-in user. Both files may specify `serverURL` to override the default. Use the corresponding production tokens from the VPS; local development tokens will not authenticate. These **production install scripts persist**; unlike the local development launcher, they are not automatically uninstalled.
 

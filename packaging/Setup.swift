@@ -205,11 +205,48 @@ func stagePackage(_ source: URL, in directory: URL) throws -> URL {
     return staged
 }
 
+// Generate in the logged-in user's private directory; the containing profile
+// requests System scope, so macOS requires administrator approval to activate it.
+func chromeProfile(extensionID: String, serverURL: String, browserToken: String) throws -> Data {
+    guard extensionID.utf8.count == 32,
+          extensionID.utf8.allSatisfy({ (97...112).contains($0) }),
+          (32...512).contains(browserToken.utf8.count),
+          browserToken.utf8.allSatisfy({ (33...126).contains($0) }) else {
+        throw SetupError.message("Use a real 32-letter Chrome Web Store extension ID and a valid BROWSER token")
+    }
+    _ = try origin(serverURL)
+    func payload(_ type: String, _ identifier: String, _ values: [String: Any]) -> [String: Any] {
+        var result = values
+        result.merge(["PayloadType": type, "PayloadVersion": 1,
+                      "PayloadIdentifier": identifier, "PayloadUUID": UUID().uuidString]) { _, new in new }
+        return result
+    }
+    let chromeSettings: [String: Any] = [
+        "ExtensionSettings": [extensionID: ["installation_mode": "force_installed",
+            "update_url": "https://clients2.google.com/service/update2/crx"]],
+        "IncognitoModeAvailability": 1, "BrowserGuestModeEnabled": false]
+    // Use Apple's documented managed-preferences payload format. Arbitrary
+    // bundle IDs are preference domains, not registered Apple payload types.
+    func managed(_ domain: String, _ identifier: String, _ values: [String: Any]) -> [String: Any] {
+        payload("com.apple.ManagedClient.preferences", identifier, [
+            "PayloadContent": [domain: ["Forced": [["mcx_preference_settings": values]]]]])
+    }
+    let chrome = managed("com.google.Chrome", "com.side-forge.orbit.chrome.policy", chromeSettings)
+    let storage = managed("com.google.Chrome.extensions." + extensionID,
+        "com.side-forge.orbit.chrome.storage", ["serverURL": serverURL, "browserToken": browserToken])
+    let profile = payload("Configuration", "com.side-forge.orbit.chrome.configuration", [
+        "PayloadDisplayName": "Orbit Chrome Browser Policy", "PayloadOrganization": "Orbit",
+        "PayloadScope": "System", "PayloadRemovalDisallowed": false,
+        "PayloadContent": [chrome, storage]])
+    return try PropertyListSerialization.data(fromPropertyList: profile, format: .xml, options: 0)
+}
+
 func install(_ package: String) throws {
     guard getuid() >= 501, let user = getpwuid(getuid()) else {
         throw SetupError.message("Run Install Orbit.command from the target user's desktop, without sudo")
     }
     let username = String(cString: user.pointee.pw_name)
+    let home = String(cString: user.pointee.pw_dir)
     let console = try run("/usr/bin/stat", ["-f", "%Su", "/dev/console"], capture: true)
     guard console == username else { throw SetupError.message("Log into the account whose app usage should be tracked") }
     guard FileManager.default.fileExists(atPath: package) else { throw SetupError.message("Orbit.pkg is missing; extract the entire download first") }
@@ -226,6 +263,12 @@ func install(_ package: String) throws {
                                   deviceToken: try prompt("Enter the VPS DEVICE token (not the admin token)"),
                                   activityToken: try prompt("Enter the VPS ACTIVITY token"))
     try credentials.validate()
+    let extensionID = try prompt("Enter the published Orbit Chrome Web Store extension ID (32 letters)")
+    let browserToken = try prompt("Enter the distinct read-only VPS BROWSER token")
+    guard browserToken != credentials.deviceToken, browserToken != credentials.activityToken else {
+        throw SetupError.message("The BROWSER token must differ from DEVICE and ACTIVITY tokens")
+    }
+    let profile = try chromeProfile(extensionID: extensionID, serverURL: credentials.serverURL, browserToken: browserToken)
     let file = directory.appendingPathComponent("credentials.json")
     try JSONEncoder().encode(credentials).write(to: file, options: .atomic)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
@@ -234,6 +277,15 @@ func install(_ package: String) throws {
     // administrator credentials even when the console user is a standard user.
     let script = "on run argv\ndo shell script (item 1 of argv) with administrator privileges\nend run"
     try run("/usr/bin/osascript", ["-e", script, command])
+    let profileURL = URL(fileURLWithPath: home)
+        .appendingPathComponent("Library/Application Support/Orbit/Orbit-Chrome.mobileconfig")
+    try profile.write(to: profileURL, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: profileURL.path)
+    try run("/usr/bin/open", [profileURL.path])
+    let message = "Chrome protection needs approval. In System Settings > General > Device Management, install Orbit Chrome Browser Policy using administrator credentials. Then restart Chrome and test a blocked site. Guest and Incognito will be disabled. Until approved, website blocking is not active."
+    try run("/usr/bin/osascript", ["-e", "on run argv\ndisplay dialog (item 1 of argv) buttons {\"Open Settings\"} default button \"Open Settings\" with title \"Finish Chrome setup\"\nend run", message])
+    try run("/usr/bin/open", ["x-apple.systempreferences:com.apple.Profiles-Settings.extension"])
+    print("CHROME SETUP PENDING: Approve Orbit Chrome Browser Policy in System Settings > General > Device Management using administrator credentials. Restart Chrome, verify chrome://policy, and test a blocked site in a new profile. Guest and Incognito will be disabled after approval. The extension must already be published in the Chrome Web Store.")
     print("Orbit services installed for \(username). Confirm both connect in the dashboard.")
     try run("/usr/bin/open", ["https://orbit.side-forge.com"])
 }
@@ -245,6 +297,10 @@ do {
     else if args.count == 3 && args[1] == "--configure" { try configure(args[2]) }
     else if args.count == 2 && args[1] == "--monitor-user" { try monitorSetup() }
     else if args.count == 2 && args[1] == "--check-monitor-input" { _ = try readMonitorInput(); print("Monitor credentials valid") }
+    else if args.count == 3 && args[1] == "--check-chrome-profile" {
+        let values = try JSONSerialization.jsonObject(with: readInputData()) as? [String: String] ?? [:]
+        FileHandle.standardOutput.write(try chromeProfile(extensionID: args[2], serverURL: values["serverURL"] ?? "", browserToken: values["browserToken"] ?? ""))
+    }
     else if args.count == 2 && args[1] == "--check-input" { _ = try readInput(); print("Credentials valid") }
     else { throw SetupError.message("Use Install Orbit.command from the downloaded bundle") }
 } catch SetupError.message(let message) {

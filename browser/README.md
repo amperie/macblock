@@ -16,6 +16,32 @@ protected. Chrome managed extension configuration must supply
 `chrome://policy` and confirm the extension has installed blocking rules.
 Do not invent an extension ID or update URL.
 
+## Integrated installer
+`bash packaging/build.sh` produces the universal installer and a separate
+`Orbit-Chrome-WebStore.zip` upload archive. Publish that archive in the Chrome
+Web Store first and record the assigned extension ID. No publication or developer
+account is provisioned by the build. Self-hosted force installation on macOS
+requires MDM, domain management, or Chrome Enterprise Core enrollment.
+
+Run `Install Orbit.command` on the target desktop. Alongside DEVICE/ACTIVITY
+credentials, it requests the distinct BROWSER token and published extension ID.
+It generates a private profile and opens it for administrator approval in
+System Settings > General > Device Management. The profile explicitly requests
+System scope, force-installs the extension across Chrome profiles, disables
+Guest mode and Incognito, and supplies credentials through the separate
+`com.google.Chrome.extensions.EXTENSION_ID` managed preference domain.
+Profile generation alone does not activate protection. Restart Chrome, verify
+machine policy in `chrome://policy`, and test blocking in existing and new
+profiles. Test with the target user's standard account and after reboot.
+
+`Uninstall Orbit.command` attempts to remove only Orbit's configuration profile
+with administrator authorization, including legacy user-scoped profiles. It verifies
+profile absence after removal. If removal fails or cannot be confirmed,
+it opens Device Management for manual cleanup. MDM-controlled profiles must be
+removed by MDM. Restart Chrome after removal and remove Orbit through
+`chrome://extensions` if it remains. The uninstaller never edits Chrome profile
+databases, deletes browsing data, or rewrites unrelated Chrome policies.
+
 ## Safari
 Run `bash browser/safari/build-project.sh` on a Mac with Xcode. Sign the
 generated containing app and extension using an Apple developer identity,

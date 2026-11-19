@@ -136,3 +136,11 @@ rollback restores the matching predeployment database. If a future release adds
 incompatible migrations, review database compatibility before rolling back.
 Changes to systemd, the installer, or release helper need a reviewed rerun of
 the installer on the VPS; application deployments cannot replace root helpers.
+
+## Public privacy policy
+
+The server serves `/privacy` and `/privacy/` without login; the dashboard links
+to it. The policy is embedded in `server/server.py` so existing four-file release
+helpers deploy it without a privileged helper upgrade. After deploying, verify
+`curl --fail https://orbit.side-forge.com/privacy` returns the privacy policy
+without an administrator token before submitting that URL to the Chrome Web Store.
