@@ -117,6 +117,35 @@ const responseFor = path => path === '/api/admin/usage' ? usage() :
   assert.equal(cards[1].children[1].children[1].dateTime,'2020-01-01T00:00:00Z');
   assert.equal(cards[2].children[0].children[0].textContent,'Unknown Mac (older agent)');
   assert.equal(cards[1].children[3].textContent,'Sync failed');
+  let connectionDeletes = 0;
+  fetchImpl = async (path,options) => {
+    assert.equal(path,'/api/admin/connections/delete');
+    assert.equal(options.method,'POST');
+    connectionDeletes++;
+    const payload = JSON.parse(options.body);
+    assert.deepEqual(payload,{hostname:'daughter-mac.local'});
+    return {ok:true,json:async()=>({...connections,devices:connections.devices.slice(1)})};
+  };
+  await cards[0].children[cards[0].children.length-1].onclick();
+  assert.equal(connectionDeletes,1);
+  assert.equal(get('connections-list').children.length,2);
+  assert.equal(run('state.devices.length'),2);
+  assert.equal(run('dirty'),true,'Connection deletion must preserve pending policy edits');
+  assert.match(get('connections-note').textContent,/reappear/);
+  fetchImpl = async () => ({ok:false,json:async()=>({error:'Delete failed'})});
+  const remainingCard = get('connections-list').children[0];
+  await remainingCard.children[remainingCard.children.length-1].onclick();
+  assert.equal(get('connections-list').children.length,2,'Failed deletion must preserve the entries');
+  assert.match(get('message').textContent,/Delete failed/);
+  fetchImpl = async (path,options) => {
+    assert.deepEqual(JSON.parse(options.body),{hostname:null});
+    return {ok:true,json:async()=>({...connections,devices:[]})};
+  };
+  const unknownCard = get('connections-list').children[1];
+  await unknownCard.children[unknownCard.children.length-1].onclick();
+  assert.equal(run('state.devices.length'),0);
+  run('render()');
+  assert.equal(get('connections-list').children[0].textContent,'No Macs have connected yet.');
   run('renderConnections([])');
   assert.equal(get('connections-list').children[0].textContent,'No Macs have connected yet.');
   run('dirty = false');

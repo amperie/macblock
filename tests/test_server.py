@@ -522,4 +522,88 @@ class UsageCounterTests(unittest.TestCase):
         self.assertFalse(s.quota_state(self.config,self.now)['monitoringFresh'])
 
 
+class ConnectionDeletionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.previous_db = s.DB
+        self.tokens = (s.ADMIN,s.DEVICE,s.ACTIVITY,s.BROWSER)
+        s.ADMIN,s.DEVICE,s.ACTIVITY,s.BROWSER = 'a'*40,'d'*40,'m'*40,'b'*40
+        s.DB = os.path.join(self.tmp.name,'connections.sqlite3')
+        s.init_db()
+        self.report = dict(revision=1,agentVersion='test',lastError='')
+        self.original_policy = s.policy()
+        for host in ['one.local','two.local',None]:
+            report = dict(self.report,hostname=host) if host else self.report
+            self.assertEqual(self.request('/api/device/status',s.DEVICE,report)[0],200)
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute('INSERT INTO quota_usage VALUES (?,?,?)',('2026-11-19','com.example.app',100))
+
+    def tearDown(self):
+        s.DB = self.previous_db
+        s.ADMIN,s.DEVICE,s.ACTIVITY,s.BROWSER = self.tokens
+        self.tmp.cleanup()
+
+    def request(self,path,token,payload):
+        from io import BytesIO
+        from email.message import Message
+        handler = s.Handler.__new__(s.Handler)
+        handler.path = path
+        handler.headers = Message()
+        handler.headers['Authorization'] = 'Bearer '+token
+        body = json.dumps(payload).encode()
+        handler.headers['Content-Length'] = str(len(body))
+        handler.rfile = BytesIO(body)
+        replies = []
+        handler.reply = lambda code,data: replies.append((code,data))
+        handler.do_POST()
+        return replies[0]
+
+    def delete(self,hostname):
+        return self.request('/api/admin/connections/delete',s.ADMIN,dict(hostname=hostname))
+
+    def test_delete_named_and_legacy_entries_survive_restart(self):
+        self.assertEqual(self.delete('ONE.LOCAL.')[0],200)
+        self.assertEqual({d['hostname'] for d in s.connections_report()['devices']},{'two.local',None})
+        self.assertEqual(self.delete('two.local')[0],200)
+        self.assertEqual(self.delete(None)[1]['devices'],[])
+        s.init_db()
+        self.assertEqual(s.connections_report()['devices'],[])
+        with sqlite3.connect(s.DB) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM status').fetchone()[0],0)
+            self.assertEqual(conn.execute('SELECT seconds FROM quota_usage').fetchone()[0],100)
+        self.assertEqual(s.policy(),self.original_policy)
+
+    def test_delete_latest_preserves_other_mac_and_can_reconnect(self):
+        self.delete(None)
+        with sqlite3.connect(s.DB) as conn:
+            current = json.loads(conn.execute('SELECT payload FROM status').fetchone()[0])
+            self.assertIn(current['hostname'],['one.local','two.local'])
+        self.delete('one.local')
+        self.assertEqual(self.request('/api/device/status',s.DEVICE,dict(self.report,hostname='one.local'))[0],200)
+        self.assertEqual({d['hostname'] for d in s.connections_report()['devices']},{'one.local','two.local'})
+
+    def test_migrated_unknown_entry_does_not_reappear(self):
+        with sqlite3.connect(s.DB) as conn:
+            conn.execute('DELETE FROM device_status')
+            conn.execute('DELETE FROM status')
+            conn.execute('INSERT INTO status VALUES (1,?,?)',
+                (json.dumps(dict(self.report,hostname='older-mac.local')),datetime.datetime.now(datetime.timezone.utc).isoformat()))
+        s.init_db()
+        self.assertIsNone(s.connections_report()['devices'][0]['hostname'])
+        self.delete(None)
+        s.init_db()
+        self.assertEqual(s.connections_report()['devices'],[])
+
+    def test_delete_is_admin_only_and_validates_payload(self):
+        path = '/api/admin/connections/delete'
+        for token in [s.DEVICE,s.ACTIVITY,s.BROWSER,'']:
+            self.assertEqual(self.request(path,token,dict(hostname='one.local'))[0],401)
+        for payload in [{},{'hostname':3},{'hostname':''},{'hostname':'.'},
+                        {'hostname':'bad\n'},{'hostname':'x'*254},{'hostname':'one.local','extra':True}]:
+            self.assertEqual(self.request(path,s.ADMIN,payload)[0],400)
+        self.assertEqual(len(s.connections_report()['devices']),3)
+        self.assertEqual(self.delete('missing.local')[0],200)
+        self.assertEqual(len(s.connections_report()['devices']),3)
+
+
 if __name__ == '__main__': unittest.main()

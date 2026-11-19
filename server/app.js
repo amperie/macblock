@@ -59,6 +59,19 @@ function renderConnections(devices = connectionSnapshot, serverTimeUTC) {
       const error = document.createElement('p'); error.className = 'connection-error';
       error.textContent = device.report.lastError; row.append(error);
     }
+    const remove = document.createElement('button'); remove.type = 'button';
+    remove.className = 'secondary'; remove.textContent = 'Delete';
+    remove.setAttribute('aria-label', `Delete connection for ${device.hostname || 'Unknown Mac (older agent)'}`);
+    remove.onclick = action(async () => {
+      const data = await api('/api/admin/connections/delete', {hostname: device.hostname ?? null});
+      state.devices = data.devices;
+      state.serverTimeUTC = data.serverTimeUTC;
+      const latest = [...data.devices].sort((a,b) => Date.parse(b.lastSeen) - Date.parse(a.lastSeen))[0];
+      state.device = latest ? {report:latest.report,lastSeen:latest.lastSeen} : null;
+      renderConnections(data.devices, data.serverTimeUTC);
+      $('connections-note').textContent = 'Connection entry deleted. The Mac will reappear if it checks in again.';
+    });
+    row.append(remove);
     root.append(row);
   }
 }

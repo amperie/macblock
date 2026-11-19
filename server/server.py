@@ -347,6 +347,19 @@ def connections_report(now=None):
     return dict(devices=devices, serverTimeUTC=now.isoformat())
 
 
+def delete_connection(conn, hostname):
+    key = hostname.casefold().rstrip('.') if hostname is not None else ''
+    removed = conn.execute('SELECT payload FROM device_status WHERE hostname=?', (key,)).fetchone()
+    conn.execute('DELETE FROM device_status WHERE hostname=?', (key,))
+    latest = conn.execute('SELECT payload FROM status WHERE id=1').fetchone()
+    if latest and (json.loads(latest[0]).get('hostname', '').casefold().rstrip('.') == key or
+                   (removed and removed[0] == latest[0])):
+        conn.execute('DELETE FROM status WHERE id=1')
+        remaining = conn.execute('SELECT payload,seen FROM device_status ORDER BY seen DESC,hostname LIMIT 1').fetchone()
+        if remaining:
+            conn.execute('INSERT INTO status VALUES (1,?,?)', remaining)
+
+
 def policy():
     with sqlite3.connect(DB) as conn:
         return json.loads(conn.execute('SELECT payload FROM state WHERE id=1').fetchone()[0])
@@ -497,14 +510,25 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {'error': 'Not found'})
 
     def do_POST(self):
-        if self.path not in ('/api/admin/policy', '/api/admin/usage/reset', '/api/device/status', '/api/device/activity', '/api/browser/activity'):
+        if self.path not in ('/api/admin/policy', '/api/admin/usage/reset', '/api/admin/connections/delete', '/api/device/status', '/api/device/activity', '/api/browser/activity'):
             return self.reply(404, {'error': 'Not found'})
-        if not self.authorized(ADMIN if self.path in ('/api/admin/policy', '/api/admin/usage/reset') else ACTIVITY if self.path == '/api/device/activity' else BROWSER if self.path == '/api/browser/activity' else DEVICE):
+        if not self.authorized(ADMIN if self.path in ('/api/admin/policy', '/api/admin/usage/reset', '/api/admin/connections/delete') else ACTIVITY if self.path == '/api/device/activity' else BROWSER if self.path == '/api/browser/activity' else DEVICE):
             return
         try:
             data = self.body()
             if not isinstance(data, dict):
                 raise ValueError('Expected an object')
+            if self.path == '/api/admin/connections/delete':
+                if set(data) != {'hostname'}:
+                    raise ValueError('Supply a hostname')
+                hostname = data['hostname']
+                if hostname is not None and (not isinstance(hostname, str) or not 1 <= len(hostname) <= 253 or
+                        hostname != hostname.strip() or any(not c.isprintable() for c in hostname) or
+                        any(0xD800 <= ord(c) <= 0xDFFF for c in hostname) or not hostname.rstrip('.')):
+                    raise ValueError('Invalid hostname')
+                with LOCK, sqlite3.connect(DB) as conn:
+                    delete_connection(conn, hostname)
+                return self.reply(200, connections_report())
             if self.path == '/api/admin/usage/reset':
                 if set(data) != {'revision'} or type(data['revision']) is not int:
                     raise ValueError('Supply the current settings revision')
