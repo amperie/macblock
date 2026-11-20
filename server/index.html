@@ -1,59 +1,64 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#285943">
   <title>Orbit · Family controls</title>
   <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
 </head>
 <body><main>
-  <header><span class="eyebrow">ORBIT · FAMILY CONTROLS</span><h1>A little more balance.</h1><p>Set boundaries. See how time is spent.</p></header>
+  <header class="brand"><strong>ORBIT</strong><span>Family controls</span></header>
   <section id="login"><label for="token">Parent access token</label><div class="line"><input id="token" type="password" autocomplete="current-password"><button id="connect">Connect</button></div><small>Your token stays in this tab’s memory.</small></section>
   <div id="controls" hidden>
+    <nav class="tabs" role="tablist" aria-label="Family controls">
+      <button id="tab-monitoring" role="tab" aria-selected="true" aria-controls="panel-monitoring"><span aria-hidden="true">⌂</span>Overview</button>
+      <button id="tab-blocking" role="tab" aria-selected="false" aria-controls="panel-blocking" tabindex="-1"><span aria-hidden="true">▦</span>Apps</button>
+      <button id="tab-websites" role="tab" aria-selected="false" aria-controls="panel-websites" tabindex="-1"><span aria-hidden="true">◎</span>Websites</button>
+      <button id="tab-protection" role="tab" aria-selected="false" aria-controls="panel-protection" tabindex="-1"><span aria-hidden="true">⚙</span>Settings</button>
+    </nav>
+    <div id="panel-blocking" role="tabpanel" aria-labelledby="tab-blocking" tabindex="0" hidden>
+      <div class="page-title line"><div><h1>Apps</h1><p>Usage, limits and blocking in one place.</p></div><a class="button secondary" href="#add-app">+ Add app</a></div>
+      <p class="hint">Rules apply to all connected Macs. Status describes the configured rules; check delivery below.</p><div id="apps"></div>
+      <section id="add-app"><h2>Add an app</h2><label for="app-preset">Common apps</label><select id="app-preset"><option value="">Choose an app or enter details below</option><option value="Roblox|com.roblox.RobloxPlayer">Roblox</option><option value="Minecraft|com.mojang.minecraftlauncher">Minecraft Launcher</option><option value="Safari|com.apple.Safari">Safari</option><option value="Google Chrome|com.google.Chrome">Google Chrome</option></select><p>Use its exact macOS signing identifier. Additions start allowed.</p><form id="add"><label for="name">App name</label><input id="name" required maxlength="80" placeholder="Minecraft"><label for="bundle">Signing identifier</label><input id="bundle" required placeholder="com.example.application"><button class="secondary">Add to list</button></form></section>
+    </div>
+    <div id="panel-monitoring" role="tabpanel" aria-labelledby="tab-monitoring" tabindex="0">
+      <div class="line page-title"><div><h1>Today</h1><p>Activity across your connected Macs.</p></div><button id="usage-refresh" class="secondary">Refresh</button></div>
     <section class="connections-box" aria-labelledby="connections-heading">
       <div class="line"><h2 id="connections-heading">Mac connections</h2><button id="connections-refresh" class="secondary">Refresh connections</button></div>
       <p class="hint">Last agent check-in from each Mac. Older installations appear as Unknown Mac until updated.</p>
       <div id="connections-list" aria-live="polite"></div>
       <p id="connections-note" class="hint" role="status"></p>
     </section>
-    <nav class="tabs" role="tablist" aria-label="Family controls">
-      <button id="tab-blocking" role="tab" aria-selected="true" aria-controls="panel-blocking">Blocking</button>
-      <button id="tab-monitoring" role="tab" aria-selected="false" aria-controls="panel-monitoring" tabindex="-1">Monitoring</button>
-      <button id="tab-schedules" role="tab" aria-selected="false" aria-controls="panel-schedules" tabindex="-1">Schedules &amp; limits</button>
-      <button id="tab-protection" role="tab" aria-selected="false" aria-controls="panel-protection" tabindex="-1">Protection</button>
-      <button id="tab-alerts" role="tab" aria-selected="false" aria-controls="panel-alerts" tabindex="-1">Alerts</button>
-    </nav>
-    <div id="panel-blocking" role="tabpanel" aria-labelledby="tab-blocking" tabindex="0">
-      <section><h2>App blocking</h2><p>Blocked apps are stopped even when running in the background.</p><div id="apps"></div></section>
-      <section><h2>Website blocking <span class="badge">Experimental</span></h2><label for="blocked-domains">Domains, one per line</label><textarea id="blocked-domains" rows="5" placeholder="instagram.com&#10;tiktok.com"></textarea><p class="hint">Includes subdomains. Requires an installed, enabled browser extension. Extensions can be disabled without additional device management.</p></section>
-      <section><h2>Add an app</h2><p>Use its exact macOS signing identifier. Additions start allowed.</p><form id="add"><label for="name">App name</label><input id="name" required maxlength="80" placeholder="Minecraft"><label for="bundle">Signing identifier</label><input id="bundle" required placeholder="com.example.application"><button class="secondary">Add to list</button></form></section>
-    </div>
-    <div id="panel-monitoring" role="tabpanel" aria-labelledby="tab-monitoring" tabindex="0" hidden>
-      <div class="line page-title"><div><h2>App activity</h2><p>Foreground app time, at a glance.</p></div><div class="line"><button id="usage-refresh" class="secondary">Refresh monitoring</button><button id="usage-reset" type="button" class="secondary">Reset usage counters</button></div></div>
+      <p class="hint">Rules and usage totals apply to all connected Macs.</p>
       <div class="metrics">
         <section><span class="eyebrow">APP TIME TODAY</span><strong id="today-total" class="metric">—</strong><small id="today-date">Waiting for usage data</small></section>
         <section><span class="eyebrow">PAST 7 DAYS</span><strong id="week-total" class="metric">—</strong><small>Foreground app time</small></section>
         <section><span class="eyebrow">CURRENT ACTIVITY</span><strong id="current-app" class="metric current">—</strong><small id="activity-current" role="status">No activity reported</small></section>
       </div>
-      <section><h2>Daily app activity</h2><p class="hint">Last seven calendar days in the monitoring time zone.</p><div id="daily-chart" class="daily-chart"></div></section>
-      <section><div class="line"><h2>Where the time goes</h2><div><label for="usage-period">Period</label><select id="usage-period"><option value="today">Today</option><option value="week">Past 7 days</option></select></div></div><div id="app-chart"></div><p id="usage-summary" class="hint"></p></section>
-      <section><h2>Website activity</h2><p class="hint">Sampled active-tab time. Requires the browser extension and may overlap app time.</p><div id="website-chart"></div></section>
+      <section id="attention" class="attention" hidden><div class="line"><div><h2>Needs attention</h2><p id="attention-text"></p></div><button id="attention-details" class="secondary">View details</button></div></section>
+      <section><div class="line"><div><h2>App usage</h2><p class="hint">All reported apps, sorted by time used. Bars show usage, not limits.</p></div><div><label for="usage-period">Period</label><select id="usage-period"><option value="today">Today</option><option value="week">Past 7 days</option></select></div></div><div id="app-chart"></div><p id="usage-summary" class="hint"></p></section>
+      <section><details><summary>Daily activity · past 7 days</summary><div id="daily-chart" class="daily-chart"></div></details></section>
       <section><details><summary>Daily and weekly history</summary><div id="usage-report"></div></details></section>
       <section><details><summary>Recent app sessions</summary><button id="activity-refresh" class="secondary">Refresh sessions</button><div id="activity-events"></div></details></section>
     </div>
-    <div id="panel-schedules" role="tabpanel" aria-labelledby="tab-schedules" tabindex="0" hidden>
-      <section><h2>Time zone</h2><label for="enforcement-zone">Schedules and daily reset</label><select id="enforcement-zone"></select><p class="hint">Changing the Mac’s time zone does not change these restrictions.</p></section>
-      <section><h2>Per-app limits</h2><p>Give each app its own daily allowance and restricted hours.</p><div id="per-app-rules"></div><p class="hint">Temporary allowances do not override an explicit app block.</p></section>
-      <section><h2>Shared restricted hours</h2><label><input id="schedule-enabled" type="checkbox"> Block listed apps during these hours</label><div class="field-grid"><div><label for="schedule-start">Start (24-hour)</label><input id="schedule-start" type="time" value="21:00"></div><div><label for="schedule-end">End (24-hour)</label><input id="schedule-end" type="time" value="07:00"></div></div><p class="hint">An app’s own schedule takes precedence. Enabled schedules keep blocking if trusted server time is unavailable.</p></section>
-      <section><h2>Daily foreground allowance</h2><label><input id="quota-enabled" type="checkbox"> Enable daily usage limit</label><div class="field-grid"><div><label for="quota-app">Application</label><select id="quota-app"></select></div><div><label for="quota-minutes">Minutes per day</label><input id="quota-minutes" type="number" min="1" max="1440" value="60"></div></div><p id="quota-status"></p><p class="hint">Resets at midnight in the selected time zone. The limited app is blocked if monitoring or trusted time is unavailable.</p></section>
+    <div id="panel-websites" role="tabpanel" aria-labelledby="tab-websites" tabindex="0" hidden>
+      <div class="page-title"><h1>Websites</h1><p>Manage blocked domains and review browsing activity.</p></div>
+      <section><h2>Website blocking <span class="badge">Experimental</span></h2><form id="domain-add"><label for="domain-name">Block a website</label><div class="line"><input id="domain-name" type="text" placeholder="example.com" autocomplete="off" autocapitalize="none" spellcheck="false" required><button>Add</button></div></form><div id="domain-list"></div><details><summary>Edit domain list in bulk</summary><label for="blocked-domains">Domains, one per line</label><textarea id="blocked-domains" rows="5" placeholder="instagram.com&#10;tiktok.com" autocapitalize="none" spellcheck="false"></textarea></details><p class="hint">Includes subdomains. Requires an installed, enabled browser extension. Extensions can be disabled without additional device management.</p></section>
+      <section><h2>Website activity</h2><p class="hint">Uses the period selected on Overview. Sampled active-tab time may overlap app time; do not add these totals together.</p><div id="website-chart"></div></section>
     </div>
     <div id="panel-protection" role="tabpanel" aria-labelledby="tab-protection" tabindex="0" hidden>
+      <div class="page-title"><h1>Settings</h1><p>Schedules, protection and account activity.</p></div>
+      <section><h2>Time zone</h2><label for="enforcement-zone">Schedules and daily reset</label><select id="enforcement-zone"></select><p class="hint">Changing the Mac’s time zone does not change these restrictions.</p></section>
+
+      <section><h2>Shared restricted hours</h2><label><input id="schedule-enabled" type="checkbox"> Block listed apps during these hours</label><div class="field-grid"><div><label for="schedule-start">Start (24-hour)</label><input id="schedule-start" type="time" required value="21:00"></div><div><label for="schedule-end">End (24-hour)</label><input id="schedule-end" type="time" required value="07:00"></div></div><p class="hint">An app’s own schedule takes precedence. Enabled schedules keep blocking if trusted server time is unavailable.</p></section>
+      <section><h2>Additional daily allowance</h2><label><input id="quota-enabled" type="checkbox"> Enable daily usage limit</label><div class="field-grid"><div><label for="quota-app">Application</label><select id="quota-app"></select></div><div><label for="quota-minutes">Minutes per day</label><input id="quota-minutes" type="number" required min="1" max="1440" value="60"></div></div><p id="quota-status"></p><p class="hint">Use the Apps section for per-app limits. This existing allowance can apply an additional cap; the lower limit wins. Resets at midnight in the selected time zone. The limited app is blocked if monitoring or trusted time is unavailable.</p></section>
       <section><div class="line"><h2>Mac connection</h2><button id="refresh" class="secondary">Refresh status</button></div><p id="status" role="status"></p><p id="health"></p></section>
       <section><div class="line"><h2>Protection health</h2><button id="security-refresh" class="secondary">Check health</button></div><p id="security-health" role="status">Protection health has not been checked.</p><p class="hint">Browser filtering is experimental. A connected daemon does not confirm that browser rules are active.</p></section>
-    </div>
-    <div id="panel-alerts" role="tabpanel" aria-labelledby="tab-alerts" tabindex="0" hidden>
+
       <section><div class="line"><h2>Policy and connection alerts</h2><button id="alerts-refresh" class="secondary">Refresh alerts</button></div><div id="alerts"></div></section>
+      <section><h2>Reset usage</h2><p class="hint">Clear all app and website totals, including daily-limit usage. Session history and rules are kept.</p><button id="usage-reset" type="button" class="secondary">Reset usage counters</button></section>
     </div>
-    <div class="save-bar"><div><strong id="save-state">Settings up to date</strong><small>Changes arrive at the next agent check. Offline Macs keep their last settings.</small></div><div class="save-actions"><button id="discard" class="secondary">Discard changes</button><button id="save">Save changes</button></div></div>
+    <div id="save-bar" class="save-bar"><div><strong id="save-state" role="status">Settings up to date</strong><small id="delivery-state">Changes arrive at the next agent check.</small></div><div class="save-actions"><button id="discard" class="secondary">Discard changes</button><button id="save">Save changes</button></div></div>
   </div>
   <p id="message" role="alert"></p><footer>Orbit · App usage tracks foreground activity and pauses after five minutes idle. Browser protection is not independently verified. · <a href="/privacy">Privacy policy</a></footer>
 </main></body></html>
