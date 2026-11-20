@@ -237,3 +237,7 @@ ORBIT_TEST_PACKAGE="$PWD/dist/Orbit-Installer.zip" python3 -m unittest discover 
 `dev/test.sh` needs Node.js and the macOS Swift toolchain. Some integration checks require process enumeration/termination and a real GUI session; restricted sandboxes cannot fully validate them. Packaging emits `dist/Orbit-Installer.zip`, its SHA-256 file, a Chrome Web Store upload archive, and updater binary artifacts. Building does not publish anything.
 
 Implementation directories: `agent/`, `server/`, `browser/`, `packaging/`, `updater/`, `deploy/`, `dev/`, and `tests/`. See [deploy/README.md](deploy/README.md), [browser/README.md](browser/README.md), [updater/README.md](updater/README.md), [dev/README.md](dev/README.md), and [packaging/README.txt](packaging/README.txt) for component-specific instructions.
+
+## iPhone app
+
+The first native iPhone version is in [`ios/`](ios/README.md), with a SwiftUI app, Device Activity Monitor extension, and separate server policy/status APIs. Website **Settings → iPhone setup** generates a single-use setup code; enter it in Orbit to download the device credential and rules automatically from `https://orbit.side-forge.com`. The website also supports shared iPhone rules and individual credential revocation. It requires iOS 17.4+, Apple signing/capabilities, and physical-device enforcement tests. It is not yet a deployed or device-verified parental-control release.

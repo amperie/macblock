@@ -10,3 +10,8 @@ monitor-settings.json
 activity-queue.json
 .orbit-dev/
 dist/
+
+# Per-developer Xcode state
+xcuserdata/
+*.xcuserstate
+DerivedData/

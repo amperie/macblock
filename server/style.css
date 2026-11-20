@@ -6,3 +6,5 @@
 .attention{background:#fff4de;border-color:#f0dcb5}.attention h2{font-size:18px}.attention p{font-size:13px;margin:0}.domain-row{padding:12px 0;border-bottom:1px solid var(--border)}.domain-row strong{overflow-wrap:anywhere}.rule-fields>label:has(input[type=checkbox]){display:flex;justify-content:space-between;align-items:center;min-height:44px}#domain-add .line{flex-wrap:nowrap}#domain-name{width:100%;min-width:0}#blocked-domains{margin-top:8px}
 
 @media(max-width:380px){.save-bar{display:block}.save-bar>div:first-child{margin-bottom:8px}.save-actions{justify-content:flex-end}#message:not(:empty){bottom:calc(240px + env(safe-area-inset-bottom))}main{padding-bottom:calc(250px + env(safe-area-inset-bottom))}}
+
+.setup-code { font-size: clamp(1.3rem, 5vw, 2rem); font-weight: 700; letter-spacing: .08em; overflow-wrap: anywhere; user-select: all; }

@@ -191,6 +191,66 @@ function action(fn) { return async event => {
   try { await fn(); } catch (error) { $('message').textContent = error.message; }
   finally { busy = false; setControlsDisabled(false); updateSaveState(); }
 }; }
+let iosPolicy, iosDirty = false;
+async function loadIPhones(discard = false) {
+  const data = await api('/api/admin/ios/state');
+  if (!iosDirty || discard) {
+  iosPolicy = data.policy;
+  $('ios-blocked').checked = iosPolicy.blocked;
+  $('ios-limited').checked = iosPolicy.dailyMinutes !== null;
+  $('ios-minutes').value = iosPolicy.dailyMinutes ?? 60;
+  const zones = $('ios-zone'); zones.replaceChildren();
+  for (const name of [...new Set([...(state?.timeZones || []), iosPolicy.timeZone])]) {
+    const option = document.createElement('option'); option.value = name; option.textContent = name;
+    zones.append(option);
+  }
+  zones.value = iosPolicy.timeZone;
+  iosDirty = false;
+  }
+  const root = $('ios-devices'); root.replaceChildren();
+  for (const device of data.enrolled || []) {
+    const card = document.createElement('article'); card.className = 'connection-card';
+    const title = document.createElement('strong'); title.textContent = 'iPhone · ' + device.installationID.slice(0, 8);
+    const status = data.devices.find(item => item.report.installationID.toLowerCase() === device.installationID.toLowerCase());
+    const description = document.createElement('p');
+    description.textContent = status ? `${status.report.authorized ? 'Screen Time authorized' : 'Authorization needed'} · ${status.report.applicationCount} selected apps · revision ${status.report.revision}/${data.policy.revision} · Last sync ${new Date(status.lastSeen).toLocaleString()}` : 'Enrolled · waiting for first status upload';
+    const revoke = document.createElement('button'); revoke.type = 'button'; revoke.className = 'secondary';
+    revoke.textContent = 'Revoke access'; revoke.disabled = busy;
+    revoke.onclick = action(async () => {
+      if (!window.confirm('Revoke this iPhone’s server access? Downloaded rules remain on the phone. This does not uninstall Orbit or remove Apple Screen Time restrictions.')) return;
+      await api('/api/admin/ios/revoke', {installationID:device.installationID});
+      await loadIPhones();
+    });
+    card.append(title, description, revoke); root.append(card);
+  }
+  if (!(data.enrolled || []).length) {
+    const empty = document.createElement('p'); empty.textContent = 'No iPhones enrolled with a setup code yet.'; root.append(empty);
+  }
+  $('ios-note').textContent = iosDirty ? 'Unsaved iPhone changes kept. Save iPhone rules to send them.' : 'iPhone settings loaded. Save iPhone rules separately from Mac settings. Local shield status is not proof of enforcement.';
+}
+for (const id of ['ios-blocked', 'ios-limited', 'ios-minutes', 'ios-zone']) watchEdits($(id), () => {
+  iosDirty = true; $('ios-note').textContent = 'Unsaved iPhone changes. Use Save iPhone rules to send them.';
+});
+$('ios-refresh').onclick = action(async () => {
+  if (iosDirty && !window.confirm('Discard unsaved iPhone rules and reload?')) return;
+  await loadIPhones(true);
+});
+$('ios-pair').onclick = action(async () => {
+  // Never leave an old, now-invalid code visible if generating its replacement fails.
+  $('ios-code').textContent = '';
+  const result = await api('/api/admin/ios/pair', {});
+  $('ios-code').textContent = result.code;
+  $('ios-code-note').textContent = 'Enter this code in Orbit on the iPhone. It works once and expires at ' + new Date(result.expiresAt).toLocaleTimeString() + '. A new code replaces this one.';
+});
+$('ios-save').onclick = action(async () => {
+  if (!iosPolicy) throw Error('Refresh iPhones before saving iPhone rules.');
+  const minutes = Number($('ios-minutes').value);
+  if ($('ios-limited').checked && (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440)) throw Error('Enter an iPhone allowance from 1 to 1440 minutes.');
+  iosPolicy = await api('/api/admin/ios/policy', {...iosPolicy, blocked:$('ios-blocked').checked,
+    dailyMinutes:$('ios-limited').checked ? minutes : null, timeZone:$('ios-zone').value});
+  iosDirty = false;
+  $('ios-note').textContent = 'iPhone rules saved. Open Orbit or tap Sync on the phone to apply them.';
+});
 $('connect').onclick = action(async () => { token = $('token').value; await load(); $('token').value = ''; await refreshMonitoring(); });
 $('refresh').onclick = action(load);
 $('discard').onclick = action(async () => {
@@ -209,6 +269,7 @@ const savePolicy = action(async () => {
 });
 $('save').onclick = event => {
   for (const input of document.querySelectorAll('.rule-fields input, #panel-protection input, #quota-app')) {
+    if (input.id?.startsWith('ios-')) continue;
     if (!input.checkValidity()) {
       event?.preventDefault(); showTab(input.closest('#panel-protection') ? 'protection' : 'blocking');
       const details = input.closest('details'); if (details) details.open = true;
@@ -227,7 +288,7 @@ $('save').onclick = event => {
   return savePolicy(event);
 };
 $('add').onsubmit = action(async () => { const name = $('name').value.trim(), bundleId = $('bundle').value.trim(); if (!name || name.length > 80) throw Error('Enter an app name of at most 80 characters.'); if (state.policy.apps.length >= 100) throw Error('At most 100 apps can be configured.'); if (bundleId.length > 255) throw Error('Bundle identifier is too long.'); if (!/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(bundleId) || (bundleId !== 'com.apple.Safari' && /^(com\.apple\.|com\.side-forge\.orbit\.)/i.test(bundleId))) throw Error('Use a non-system app bundle identifier or com.apple.Safari.'); if (state.policy.apps.some(a => a.bundleId === bundleId)) throw Error('That app is already listed.'); state.policy.apps.push({name, bundleId, blocked: false}); dirty = true; refreshAppList(); $('add').reset(); $('message').textContent = 'App added. Save changes to send it to the Mac.'; });
-window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload', event => { if (dirty || iosDirty) { event.preventDefault(); event.returnValue = ''; } });
 
 async function loadActivity() {
   const generation = ++activityGeneration;
@@ -569,7 +630,7 @@ for (const [index, name] of tabNames.entries()) {
     showTab(name);
     if (name === 'monitoring' || name === 'websites') await refreshMonitoring();
     if (name === 'blocking') await refreshMonitoring();
-    if (name === 'protection') await waitForRequests([loadSecurityHealth(), loadAlerts()]);
+    if (name === 'protection') await waitForRequests([loadSecurityHealth(), loadAlerts(), loadIPhones()]);
   });
   $('tab-' + name).addEventListener('keydown', event => {
     let next;

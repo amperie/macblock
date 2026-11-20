@@ -48,6 +48,23 @@
     </div>
     <div id="panel-protection" role="tabpanel" aria-labelledby="tab-protection" tabindex="0" hidden>
       <div class="page-title"><h1>Settings</h1><p>Schedules, protection and account activity.</p></div>
+      <section aria-labelledby="ios-heading">
+        <div class="line"><h2 id="ios-heading">iPhone setup</h2><button id="ios-refresh" type="button" class="secondary">Refresh iPhones</button></div>
+        <p class="hint">Install Orbit on the iPhone, then enter a setup code. The server address, device credential and rules are configured automatically. Apple approval and app selection still happen on the phone.</p>
+        <button id="ios-pair" type="button">Generate setup code</button>
+        <p id="ios-code" role="status" class="setup-code"></p>
+        <p id="ios-code-note" class="hint">Codes work once, expire after 10 minutes, and also unlock parent setup on an enrolled phone. Generating a code invalidates the previous one.</p>
+        <div id="ios-devices" aria-live="polite"></div>
+        <details><summary>iPhone blocking and allowance</summary>
+          <p class="hint">These rules apply to all enrolled iPhones. Each phone's locally selected apps share one daily allowance. Updates apply when Orbit opens or Sync is tapped.</p>
+          <label><input id="ios-blocked" type="checkbox"> Block selected iPhone apps</label>
+          <label><input id="ios-limited" type="checkbox"> Enable iPhone daily allowance</label>
+          <label for="ios-minutes">Minutes per day</label><input id="ios-minutes" type="number" min="1" max="1440" value="60">
+          <label for="ios-zone">iPhone daily reset time zone</label><select id="ios-zone"></select>
+          <button id="ios-save" type="button">Save iPhone rules</button>
+        </details>
+        <p id="ios-note" class="hint" role="status">Refresh iPhones to load their settings.</p>
+      </section>
       <section><h2>Time zone</h2><label for="enforcement-zone">Schedules and daily reset</label><select id="enforcement-zone"></select><p class="hint">Changing the Mac’s time zone does not change these restrictions.</p></section>
 
       <section><h2>Shared restricted hours</h2><label><input id="schedule-enabled" type="checkbox"> Block listed apps during these hours</label><div class="field-grid"><div><label for="schedule-start">Start (24-hour)</label><input id="schedule-start" type="time" required value="21:00"></div><div><label for="schedule-end">End (24-hour)</label><input id="schedule-end" type="time" required value="07:00"></div></div><p class="hint">An app’s own schedule takes precedence. Enabled schedules keep blocking if trusted server time is unavailable.</p></section>

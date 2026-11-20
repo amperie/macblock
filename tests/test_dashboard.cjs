@@ -15,6 +15,7 @@ class Element {
   reportValidity() { this.validityReported = true; }
 }
 let focused, refreshTimer;
+const windowListeners = {};
 const elements = new Map();
 const html = fs.readFileSync('server/index.html','utf8');
 const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match=>match[1]);
@@ -42,13 +43,13 @@ const queryElements = selector => {
   if(selector==='.rule-fields input, #panel-protection input, #quota-app') return [...all].filter(el=>(el.tag==='input' && (el.closest('.rule-fields') || el.settingsPanel)) || el===get('quota-app'));
   throw Error('Unsupported test selector: '+selector);
 };
-const context = vm.createContext({document: {getElementById: get, createElement: tag => new Element(tag), createElementNS: (_namespace,tag) => new Element(tag), querySelectorAll: queryElements}, window: {setInterval(callback) { refreshTimer = callback; }, setTimeout, clearTimeout, location, history: {replaceState(_state, _title, url) { replacedURL = url; location.hash = ''; }}, addEventListener() {}, confirm() { return true; }}, URLSearchParams, AbortController, fetch: (...args) => fetchImpl(...args), console});
+const context = vm.createContext({document: {getElementById: get, createElement: tag => new Element(tag), createElementNS: (_namespace,tag) => new Element(tag), querySelectorAll: queryElements}, window: {setInterval(callback) { refreshTimer = callback; }, setTimeout, clearTimeout, location, history: {replaceState(_state, _title, url) { replacedURL = url; location.hash = ''; }}, addEventListener(type, listener) { windowListeners[type] = listener; }, confirm() { return true; }}, URLSearchParams, AbortController, fetch: (...args) => fetchImpl(...args), console});
 vm.runInContext(fs.readFileSync('server/app.js', 'utf8'), context);
 const run = code => vm.runInContext(code, context);
 const usage = () => ({apps: [
   {id: 'com.operasoftware.Opera', days: {'2026-11-17': 1800, '2026-11-16': 3600, '2026-11-01': 9999}, weeks: {}},
 ], websites: [{id: 'example.com', days: {'2026-11-17': 1200}, weeks: {}}], retentionDays: 90, timeZone: 'America/Los_Angeles', endDate: '2026-11-17'});
-const responseFor = path => path === '/api/admin/usage' ? usage() :
+const responseFor = path => path === '/api/admin/ios/state' ? {policy:{schemaVersion:1, revision:1, blocked:false, dailyMinutes:null, timeZone:'America/Los_Angeles'}, devices:[], enrolled:[]} : path === '/api/admin/usage' ? usage() :
   path === '/api/admin/activity' ? {current: null, lastSeen: null, events: []} :
   path === '/api/admin/alerts' ? {alerts: []} :
   path === '/api/admin/health' ? {deviceConnected: true, monitorConnected: true, browserProtectionVerified: false} : fresh();
@@ -57,6 +58,36 @@ const responseFor = path => path === '/api/admin/usage' ? usage() :
   fetchImpl = async path => ({ok: true, json: async () => responseFor(path)});
   get('token').value = 'test-token';
   await get('connect').onclick();
+  const phonePolicy = {schemaVersion:1, revision:1, blocked:false, dailyMinutes:null, timeZone:'America/Los_Angeles'};
+  const phoneID = '12345678-1234-1234-1234-123456789012';
+  fetchImpl = async (path, options) => {
+    if (path === '/api/admin/ios/pair') return {ok:true, json:async () => ({code:'ABCD-EFGH-JKLM', expiresAt:'2026-11-20T22:10:00Z'})};
+    if (path === '/api/admin/ios/state') return {ok:true, json:async () => ({policy:phonePolicy, enrolled:[{installationID:phoneID}], devices:[]})};
+    return {ok:true, json:async () => responseFor(path)};
+  };
+  await get('ios-pair').onclick();
+  assert.equal(get('ios-code').textContent, 'ABCD-EFGH-JKLM');
+  await get('ios-refresh').onclick();
+  assert.equal(get('ios-devices').children.length, 1);
+  assert.equal(get('ios-blocked').checked, false);
+  run('dirty = true');
+  get('ios-limited').checked = true; get('ios-minutes').value = '25';
+  get('ios-minutes').oninput();
+  await run('loadIPhones()');
+  assert.equal(get('ios-minutes').value, '25', 'Status refresh preserves unsaved iPhone edits');
+  fetchImpl = async (path, options) => {
+    assert.equal(path, '/api/admin/ios/policy');
+    const body = JSON.parse(options.body);
+    assert.equal(body.dailyMinutes, 25);
+    return {ok:true, json:async () => ({...body, revision:2})};
+  };
+  await get('ios-save').onclick();
+  assert.equal(run('dirty'), true, 'Saving iPhone rules preserves unfinished Mac edits');
+  fetchImpl = async () => ({ok:false, json:async () => ({error:'Failed to generate code'})});
+  await get('ios-pair').onclick();
+  assert.equal(get('ios-code').textContent, '', 'A failed replacement must not leave a superseded code visible');
+  run('dirty = false');
+  fetchImpl = async path => ({ok:true, json:async () => responseFor(path)});
   get('name').value = 'Safari';
   get('bundle').value = 'com.apple.Safari';
   await get('add').onsubmit();
@@ -559,5 +590,12 @@ const responseFor = path => path === '/api/admin/usage' ? usage() :
     rejectOldRead(Error('Superseded request failed'));
     await oldRead;
   }
+  run('dirty = false; iosDirty = true');
+  let warnedAboutDrafts = false;
+  const unload = {preventDefault() { warnedAboutDrafts = true; }};
+  windowListeners.beforeunload(unload);
+  assert.equal(warnedAboutDrafts, true, 'Leaving the website must warn about unsaved iPhone rules');
+  assert.equal(unload.returnValue, '');
+  run('iosDirty = false');
   console.log('Dashboard regression checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
